@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: chudaco-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chudaco
+      POSTGRES_USER: chudaco
+      POSTGRES_PASSWORD: devpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - chudaco-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  chudaco-postgres-data:

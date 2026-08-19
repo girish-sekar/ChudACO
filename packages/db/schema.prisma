@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String         @id @default(cuid())
+  discordId           String         @unique
+  username            String
+  avatarUrl           String?
+  shippingName        String?
+  shippingPhone       String?
+  shippingAddr        String?
+  shippingCity        String?
+  shippingState       String?
+  shippingZip         String?
+  notifyOnSuccess     Boolean        @default(true)
+  notifyOnFailure     Boolean        @default(true)
+  notifyWeeklySummary Boolean        @default(false)
+  createdAt           DateTime       @default(now())
+  checkouts           Checkout[]
+  billingEntries      BillingEntry[]
+  acoAccounts         AcoAccount[]
+}
+
+model Checkout {
+  id             String         @id @default(cuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id])
+  retailer       String
+  item           String
+  qtyLabel       String
+  price          Decimal        @db.Decimal(10, 2)
+  status         CheckoutStatus @default(pending)
+  trackingNumber String?
+  ticketCode     String         @unique
+  occurredAt     DateTime       @default(now())
+}
+
+enum CheckoutStatus {
+  success
+  failed
+  pending
+}
+
+model BillingEntry {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+  checkoutId   String?
+  checkout     Checkout?     @relation(fields: [checkoutId], references: [id])
+  feeAmount    Decimal       @db.Decimal(10, 2)
+  status       BillingStatus @default(due)
+  paidMarkedAt DateTime?
+  confirmedAt  DateTime?
+  createdAt    DateTime      @default(now())
+}
+
+enum BillingStatus {
+  due
+  paid
+  overdue
+}
+
+model PricingRule {
+  id              String   @id @default(cuid())
+  category        String
+  priceRangeLabel String
+  feeType         FeeType
+  feeFlat         Decimal? @db.Decimal(10, 2)
+  feePercent      Decimal? @db.Decimal(5, 2)
+  sortOrder       Int      @default(0)
+}
+
+enum FeeType {
+  flat
+  percent
+}
+
+model AcoAccount {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+  label             String
+  retailer          String
+  email             String
+  status            AcoStatus @default(active)
+  imapHost          String
+  imapPort          Int       @default(993)
+  imapSecurity      String    @default("SSL/TLS")
+  encryptedPassword String
+  encryptionIv      String
+  lastSyncAt        DateTime?
+}
+
+enum AcoStatus {
+  active
+  locked
+  banned
+}
+
+model PaymentMethod {
+  id     String @id @default(cuid())
+  key    String @unique
+  label  String
+  handle String
+  note   String
+}
