@@ -12,10 +12,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "migrate": "prisma migrate dev",
-    "generate": "prisma generate",
-    "seed": "tsx seed.ts",
-    "studio": "prisma studio",
+    "migrate": "dotenv -e ../../.env -- prisma migrate dev",
+    "generate": "dotenv -e ../../.env -- prisma generate",
+    "seed": "dotenv -e ../../.env -- tsx seed.ts",
+    "studio": "dotenv -e ../../.env -- prisma studio",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
@@ -23,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
+    "dotenv-cli": "^8.0.0",
     "prisma": "^5.22.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"

@@ -39,6 +39,7 @@ model Checkout {
   trackingNumber String?
   ticketCode     String         @unique
   occurredAt     DateTime       @default(now())
+  billingEntries BillingEntry[]
 }
 
 enum CheckoutStatus {
