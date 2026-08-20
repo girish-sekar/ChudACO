@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "dev": "dotenv -e ../../.env -- next dev -p 3001",
+    "build": "dotenv -e ../../.env -- next build",
+    "start": "dotenv -e ../../.env -- next start -p 3001",
+    "lint": "dotenv -e ../../.env -- next lint"
   },
   "dependencies": {
     "@chudaco/db": "workspace:*",
+    "next-auth": "^5.0.0-beta.25",
     "react": "^18",
     "react-dom": "^18",
     "next": "14.2.35"
@@ -19,6 +20,7 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "dotenv-cli": "^8.0.0",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "eslint": "^8",
