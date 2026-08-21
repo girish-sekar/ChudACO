@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 export { BillingStatus } from "@prisma/client";
+export { FeeType } from "@prisma/client";
+export { decrypt, encrypt, getImapEncryptionKeyFromEnv, parseBase64Key } from "./crypto";
 
 type GlobalPrisma = typeof globalThis & {
   __chudaco_prisma__?: PrismaClient;

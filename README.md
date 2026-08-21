@@ -28,7 +28,17 @@ Discord-gated dashboard and worker services for retail auto-checkout.
 
    cp .env.example .env
 
-4. Run migrations (command will be added in a later update).
+4. Generate IMAP encryption key (32-byte base64):
+
+   pnpm --filter worker exec tsx ../../scripts/generate-key.ts
+
+   Set the generated value as IMAP_ENCRYPTION_KEY in .env.
+
+5. Keep IMAP_ENCRYPTION_KEY out of git and back it up securely.
+
+   If this key is lost, stored IMAP credentials cannot be decrypted and must be re-entered.
+
+6. Run migrations (command will be added in a later update).
 
 ## Development
 

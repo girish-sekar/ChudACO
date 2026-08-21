@@ -5,16 +5,19 @@
   "main": "src/index.ts",
   "types": "dist/index.d.ts",
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "dotenv -e ../../.env -- tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
+    "start": "dotenv -e ../../.env -- node dist/index.js",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
-    "@chudaco/db": "workspace:*"
+    "@chudaco/db": "workspace:*",
+    "discord.js": "^14.22.1",
+    "imapflow": "^1.0.181"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
+    "dotenv-cli": "^8.0.0",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2"
   }
