@@ -1,11 +1,14 @@
 import { PrismaClient } from "@prisma/client";
+export { BillingStatus } from "@prisma/client";
 
-declare global {
-  var __chudaco_prisma__: PrismaClient | undefined;
-}
+type GlobalPrisma = typeof globalThis & {
+  __chudaco_prisma__?: PrismaClient;
+};
 
-export const prisma = globalThis.__chudaco_prisma__ ?? new PrismaClient();
+const globalForPrisma = globalThis as GlobalPrisma;
+
+export const prisma = globalForPrisma.__chudaco_prisma__ ?? new PrismaClient();
 
 if (process.env.NODE_ENV !== "production") {
-  globalThis.__chudaco_prisma__ = prisma;
+  globalForPrisma.__chudaco_prisma__ = prisma;
 }
