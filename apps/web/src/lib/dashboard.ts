@@ -51,6 +51,7 @@ export type AcoAccount = {
   label: string;
   retailer: string;
   email: string;
+  loginEmail: string | null;
   status: "active" | "locked" | "banned";
   imapHost: string;
   imapPort: number;

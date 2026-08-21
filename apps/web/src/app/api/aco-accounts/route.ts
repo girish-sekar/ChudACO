@@ -8,10 +8,12 @@ const createAcoAccountSchema = z.object({
   label: z.string().trim().min(1),
   retailer: z.string().trim().min(1),
   email: z.string().trim().email(),
+  loginEmail: z.string().trim().email(),
   imapHost: z.string().trim().min(1),
   imapPort: z.number().int().min(1).max(65535),
   imapSecurity: z.string().trim().min(1),
   password: z.string().min(1),
+  loginPassword: z.string().min(1),
 });
 
 type SanitizedAcoAccount = {
@@ -20,6 +22,7 @@ type SanitizedAcoAccount = {
   label: string;
   retailer: string;
   email: string;
+  loginEmail: string | null;
   status: string;
   imapHost: string;
   imapPort: number;
@@ -33,6 +36,7 @@ function sanitizeAcoAccount(account: {
   label: string;
   retailer: string;
   email: string;
+  loginEmail: string | null;
   status: string;
   imapHost: string;
   imapPort: number;
@@ -45,6 +49,7 @@ function sanitizeAcoAccount(account: {
     label: account.label,
     retailer: account.retailer,
     email: account.email,
+    loginEmail: account.loginEmail,
     status: account.status,
     imapHost: account.imapHost,
     imapPort: account.imapPort,
@@ -67,6 +72,7 @@ export async function GET() {
       label: true,
       retailer: true,
       email: true,
+      loginEmail: true,
       status: true,
       imapHost: true,
       imapPort: true,
@@ -97,7 +103,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const encrypted = encryptImapPassword(parsed.data.password);
+  const encryptedImapPassword = encryptImapPassword(parsed.data.password);
+  const encryptedRetailLoginPassword = encryptImapPassword(parsed.data.loginPassword);
 
   const account = await prisma.acoAccount.create({
     data: {
@@ -105,11 +112,14 @@ export async function POST(request: Request) {
       label: parsed.data.label,
       retailer: parsed.data.retailer,
       email: parsed.data.email,
+      loginEmail: parsed.data.loginEmail,
       imapHost: parsed.data.imapHost,
       imapPort: parsed.data.imapPort,
       imapSecurity: parsed.data.imapSecurity,
-      encryptedPassword: encrypted.encryptedPassword,
-      encryptionIv: encrypted.encryptionIv,
+      encryptedPassword: encryptedImapPassword.encryptedPassword,
+      encryptionIv: encryptedImapPassword.encryptionIv,
+      encryptedLoginPassword: encryptedRetailLoginPassword.encryptedPassword,
+      loginPasswordIv: encryptedRetailLoginPassword.encryptionIv,
     },
     select: {
       id: true,
@@ -117,6 +127,7 @@ export async function POST(request: Request) {
       label: true,
       retailer: true,
       email: true,
+      loginEmail: true,
       status: true,
       imapHost: true,
       imapPort: true,

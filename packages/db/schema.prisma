@@ -89,12 +89,15 @@ model AcoAccount {
   label             String
   retailer          String
   email             String
+  loginEmail        String?
   status            AcoStatus @default(active)
   imapHost          String
   imapPort          Int       @default(993)
   imapSecurity      String    @default("SSL/TLS")
   encryptedPassword String
   encryptionIv      String
+  encryptedLoginPassword String?
+  loginPasswordIv      String?
   lastSyncAt        DateTime?
 }
 
