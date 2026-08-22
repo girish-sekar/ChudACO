@@ -12,12 +12,6 @@ model User {
   discordId           String         @unique
   username            String
   avatarUrl           String?
-  shippingName        String?
-  shippingPhone       String?
-  shippingAddr        String?
-  shippingCity        String?
-  shippingState       String?
-  shippingZip         String?
   notifyOnSuccess     Boolean        @default(true)
   notifyOnFailure     Boolean        @default(true)
   notifyWeeklySummary Boolean        @default(false)
@@ -31,6 +25,8 @@ model Checkout {
   id             String         @id @default(cuid())
   userId         String
   user           User           @relation(fields: [userId], references: [id])
+  acoAccountId   String?
+  acoAccount     AcoAccount?    @relation(fields: [acoAccountId], references: [id])
   retailer       String
   item           String
   qtyLabel       String
@@ -89,6 +85,13 @@ model AcoAccount {
   label             String
   retailer          String
   email             String
+  emailProvider     String?
+  shippingName      String?
+  shippingPhone     String?
+  shippingAddr      String?
+  shippingCity      String?
+  shippingState     String?
+  shippingZip       String?
   loginEmail        String?
   status            AcoStatus @default(active)
   imapHost          String
@@ -97,14 +100,28 @@ model AcoAccount {
   encryptedPassword String
   encryptionIv      String
   encryptedLoginPassword String?
-  loginPasswordIv      String?
+  loginPasswordIv        String?
   lastSyncAt        DateTime?
+  checkouts         Checkout[]
+  cardOnFile        CardOnFile?
 }
 
 enum AcoStatus {
   active
   locked
   banned
+}
+
+model CardOnFile {
+  id             String     @id @default(cuid())
+  acoAccountId   String     @unique
+  acoAccount     AcoAccount @relation(fields: [acoAccountId], references: [id])
+  cardBrand      String?
+  last4          String?
+  expMonth       Int?
+  expYear        Int?
+  cardholderName String?
+  updatedAt      DateTime   @updatedAt
 }
 
 model PaymentMethod {

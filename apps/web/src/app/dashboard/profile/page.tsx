@@ -15,12 +15,6 @@ export default function ProfilePage() {
   const [status, setStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({
-    shippingName: "",
-    shippingPhone: "",
-    shippingAddr: "",
-    shippingCity: "",
-    shippingState: "",
-    shippingZip: "",
     notifyOnSuccess: true,
     notifyOnFailure: true,
     notifyWeeklySummary: false,
@@ -32,12 +26,6 @@ export default function ProfilePage() {
     }
 
     setForm({
-      shippingName: data.data.shippingName ?? "",
-      shippingPhone: data.data.shippingPhone ?? "",
-      shippingAddr: data.data.shippingAddr ?? "",
-      shippingCity: data.data.shippingCity ?? "",
-      shippingState: data.data.shippingState ?? "",
-      shippingZip: data.data.shippingZip ?? "",
       notifyOnSuccess: data.data.notifyOnSuccess,
       notifyOnFailure: data.data.notifyOnFailure,
       notifyWeeklySummary: data.data.notifyWeeklySummary,
@@ -50,12 +38,6 @@ export default function ProfilePage() {
     setStatus(null);
 
     const payload = {
-      shippingName: form.shippingName || null,
-      shippingPhone: form.shippingPhone || null,
-      shippingAddr: form.shippingAddr || null,
-      shippingCity: form.shippingCity || null,
-      shippingState: form.shippingState || null,
-      shippingZip: form.shippingZip || null,
       notifyOnSuccess: form.notifyOnSuccess,
       notifyOnFailure: form.notifyOnFailure,
       notifyWeeklySummary: form.notifyWeeklySummary,
@@ -82,7 +64,7 @@ export default function ProfilePage() {
     <div className="space-y-6">
       <header>
         <h1 className="font-heading text-3xl font-bold">Profile</h1>
-        <p className="mt-1 text-sm text-[#9C9AAE]">Shipping details and alert preferences.</p>
+        <p className="mt-1 text-sm text-[#9C9AAE]">Discord identity and alert preferences.</p>
       </header>
 
       {error ? <p className="text-sm text-[#FF5D5D]">Failed to load profile.</p> : null}
@@ -113,13 +95,6 @@ export default function ProfilePage() {
           </section>
 
           <form onSubmit={submit} className="grid gap-3 rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4 md:grid-cols-2">
-            <input value={form.shippingName} onChange={(e) => setForm((v) => ({ ...v, shippingName: e.target.value }))} placeholder="Shipping name" className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-            <input value={form.shippingPhone} onChange={(e) => setForm((v) => ({ ...v, shippingPhone: e.target.value }))} placeholder="Shipping phone" className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-            <input value={form.shippingAddr} onChange={(e) => setForm((v) => ({ ...v, shippingAddr: e.target.value }))} placeholder="Shipping address" className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2" />
-            <input value={form.shippingCity} onChange={(e) => setForm((v) => ({ ...v, shippingCity: e.target.value }))} placeholder="City" className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-            <input value={form.shippingState} onChange={(e) => setForm((v) => ({ ...v, shippingState: e.target.value }))} placeholder="State" className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-            <input value={form.shippingZip} onChange={(e) => setForm((v) => ({ ...v, shippingZip: e.target.value }))} placeholder="ZIP" className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-
             <label className="flex items-center gap-2 text-sm text-[#9C9AAE]">
               <input type="checkbox" checked={form.notifyOnSuccess} onChange={(e) => setForm((v) => ({ ...v, notifyOnSuccess: e.target.checked }))} /> Notify on success
             </label>

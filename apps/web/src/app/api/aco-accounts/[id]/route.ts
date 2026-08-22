@@ -3,12 +3,21 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthenticatedContext } from "@/lib/api-auth";
 import { encryptImapPassword } from "@/lib/crypto";
+import { deleteGoogleSheetRowsForAccount } from "@/lib/google-sheets-relay";
+import { upsertGoogleSheetShippingFields } from "@/lib/google-sheets-relay";
 
 const updateAcoAccountSchema = z.object({
   label: z.string().trim().min(1),
   retailer: z.string().trim().min(1),
   email: z.string().trim().email(),
+  emailProvider: z.string().trim().max(120).nullable().optional(),
   loginEmail: z.string().trim().email(),
+  shippingName: z.string().trim().max(200).nullable().optional(),
+  shippingPhone: z.string().trim().max(50).nullable().optional(),
+  shippingAddr: z.string().trim().max(300).nullable().optional(),
+  shippingCity: z.string().trim().max(120).nullable().optional(),
+  shippingState: z.string().trim().max(120).nullable().optional(),
+  shippingZip: z.string().trim().max(30).nullable().optional(),
   imapHost: z.string().trim().min(1),
   imapPort: z.number().int().min(1).max(65535),
   imapSecurity: z.string().trim().min(1),
@@ -23,7 +32,14 @@ function sanitizeAcoAccount(account: {
   label: string;
   retailer: string;
   email: string;
+  emailProvider: string | null;
   loginEmail: string | null;
+  shippingName: string | null;
+  shippingPhone: string | null;
+  shippingAddr: string | null;
+  shippingCity: string | null;
+  shippingState: string | null;
+  shippingZip: string | null;
   status: string;
   imapHost: string;
   imapPort: number;
@@ -36,7 +52,14 @@ function sanitizeAcoAccount(account: {
     label: account.label,
     retailer: account.retailer,
     email: account.email,
+    emailProvider: account.emailProvider,
     loginEmail: account.loginEmail,
+    shippingName: account.shippingName,
+    shippingPhone: account.shippingPhone,
+    shippingAddr: account.shippingAddr,
+    shippingCity: account.shippingCity,
+    shippingState: account.shippingState,
+    shippingZip: account.shippingZip,
     status: account.status,
     imapHost: account.imapHost,
     imapPort: account.imapPort,
@@ -51,7 +74,7 @@ type RouteParams = {
   };
 };
 
-export async function PUT(request: Request, context: RouteParams) {
+async function handleUpdate(request: Request, context: RouteParams) {
   const authContext = await getAuthenticatedContext();
   if (!authContext) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -80,7 +103,14 @@ export async function PUT(request: Request, context: RouteParams) {
     label: string;
     retailer: string;
     email: string;
+    emailProvider: string | null;
     loginEmail: string;
+    shippingName: string | null;
+    shippingPhone: string | null;
+    shippingAddr: string | null;
+    shippingCity: string | null;
+    shippingState: string | null;
+    shippingZip: string | null;
     imapHost: string;
     imapPort: number;
     imapSecurity: string;
@@ -93,7 +123,14 @@ export async function PUT(request: Request, context: RouteParams) {
     label: parsed.data.label,
     retailer: parsed.data.retailer,
     email: parsed.data.email,
+    emailProvider: parsed.data.emailProvider ?? null,
     loginEmail: parsed.data.loginEmail,
+    shippingName: parsed.data.shippingName ?? null,
+    shippingPhone: parsed.data.shippingPhone ?? null,
+    shippingAddr: parsed.data.shippingAddr ?? null,
+    shippingCity: parsed.data.shippingCity ?? null,
+    shippingState: parsed.data.shippingState ?? null,
+    shippingZip: parsed.data.shippingZip ?? null,
     imapHost: parsed.data.imapHost,
     imapPort: parsed.data.imapPort,
     imapSecurity: parsed.data.imapSecurity,
@@ -121,7 +158,14 @@ export async function PUT(request: Request, context: RouteParams) {
       label: true,
       retailer: true,
       email: true,
+      emailProvider: true,
       loginEmail: true,
+      shippingName: true,
+      shippingPhone: true,
+      shippingAddr: true,
+      shippingCity: true,
+      shippingState: true,
+      shippingZip: true,
       status: true,
       imapHost: true,
       imapPort: true,
@@ -130,7 +174,39 @@ export async function PUT(request: Request, context: RouteParams) {
     },
   });
 
+  try {
+    await upsertGoogleSheetShippingFields({
+      accountId: account.id,
+      label: account.label,
+      email: account.email,
+      loginEmail: account.loginEmail,
+      shippingName: account.shippingName,
+      shippingPhone: account.shippingPhone,
+      shippingAddr: account.shippingAddr,
+      shippingCity: account.shippingCity,
+      shippingState: account.shippingState,
+      shippingZip: account.shippingZip,
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown Google Sheets error";
+    return NextResponse.json(
+      {
+        error: "Failed to sync account update to Google Sheets",
+        detail: message,
+      },
+      { status: 502 },
+    );
+  }
+
   return NextResponse.json({ data: sanitizeAcoAccount(account) });
+}
+
+export async function PUT(request: Request, context: RouteParams) {
+  return handleUpdate(request, context);
+}
+
+export async function PATCH(request: Request, context: RouteParams) {
+  return handleUpdate(request, context);
 }
 
 export async function DELETE(_request: Request, context: RouteParams) {
@@ -148,7 +224,23 @@ export async function DELETE(_request: Request, context: RouteParams) {
     return NextResponse.json({ error: "Account not found" }, { status: 404 });
   }
 
-  await prisma.acoAccount.delete({ where: { id: context.params.id } });
+  try {
+    await deleteGoogleSheetRowsForAccount(existing.id);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Unknown Google Sheets error";
+    return NextResponse.json(
+      {
+        error: "Failed to delete account row in Google Sheets",
+        detail: message,
+      },
+      { status: 502 },
+    );
+  }
+
+  await prisma.$transaction([
+    prisma.cardOnFile.deleteMany({ where: { acoAccountId: context.params.id } }),
+    prisma.acoAccount.delete({ where: { id: context.params.id } }),
+  ]);
 
   return NextResponse.json({ success: true });
 }

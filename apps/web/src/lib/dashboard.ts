@@ -51,7 +51,14 @@ export type AcoAccount = {
   label: string;
   retailer: string;
   email: string;
+  emailProvider: string | null;
   loginEmail: string | null;
+  shippingName: string | null;
+  shippingPhone: string | null;
+  shippingAddr: string | null;
+  shippingCity: string | null;
+  shippingState: string | null;
+  shippingZip: string | null;
   status: "active" | "locked" | "banned";
   imapHost: string;
   imapPort: number;
@@ -59,17 +66,74 @@ export type AcoAccount = {
   lastSyncAt: string | null;
 };
 
+export type CardOnFile = {
+  id: string;
+  acoAccountId: string;
+  cardBrand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+  cardholderName: string | null;
+  updatedAt: string;
+};
+
+export type AdminCheckoutRow = {
+  id: string;
+  userId: string;
+  acoAccountId: string | null;
+  retailer: string;
+  item: string;
+  qtyLabel: string;
+  price: string;
+  status: CheckoutStatus;
+  trackingNumber: string | null;
+  ticketCode: string;
+  occurredAt: string;
+  user: {
+    id: string;
+    username: string;
+    discordId: string;
+  };
+  acoAccount: {
+    id: string;
+    label: string;
+  } | null;
+};
+
+export type AdminCheckoutSummary = {
+  totalCheckouts: number;
+  successCount: number;
+  failedCount: number;
+  pendingCount: number;
+  totalDollarVolume: string;
+};
+
+export type AdminBillingPendingEntry = {
+  id: string;
+  userId: string;
+  checkoutId: string | null;
+  feeAmount: string;
+  status: BillingStatus;
+  paidMarkedAt: string | null;
+  confirmedAt: string | null;
+  createdAt: string;
+  user: {
+    id: string;
+    username: string;
+    discordId: string;
+  };
+  checkout: {
+    id: string;
+    item: string;
+    retailer: string;
+  } | null;
+};
+
 export type Profile = {
   id: string;
   discordId: string;
   username: string;
   avatarUrl: string | null;
-  shippingName: string | null;
-  shippingPhone: string | null;
-  shippingAddr: string | null;
-  shippingCity: string | null;
-  shippingState: string | null;
-  shippingZip: string | null;
   notifyOnSuccess: boolean;
   notifyOnFailure: boolean;
   notifyWeeklySummary: boolean;

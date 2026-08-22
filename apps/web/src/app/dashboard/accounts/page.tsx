@@ -2,10 +2,19 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import useSWR from "swr";
-import { fetchJson, formatDate, type AcoAccount } from "@/lib/dashboard";
+import {
+  fetchJson,
+  formatDate,
+  type AcoAccount,
+  type CardOnFile,
+} from "@/lib/dashboard";
 
 type AccountsResponse = {
   data: AcoAccount[];
+};
+
+type CardOnFileResponse = {
+  data: CardOnFile | null;
 };
 
 type StatusBanner = {
@@ -19,7 +28,14 @@ type FormState = {
   label: string;
   retailer: string;
   email: string;
+  emailProvider: string;
   loginEmail: string;
+  shippingName: string;
+  shippingPhone: string;
+  shippingAddr: string;
+  shippingCity: string;
+  shippingState: string;
+  shippingZip: string;
   imapHost: string;
   imapPort: string;
   imapSecurity: string;
@@ -28,11 +44,46 @@ type FormState = {
   status: "active" | "locked" | "banned";
 };
 
+type PaymentFormState = {
+  cardNumber: string;
+  expMonth: string;
+  expYear: string;
+  cvv: string;
+  cardholderName: string;
+  cardBrand: string;
+};
+
+function toSafeNumber(value: string): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+const EMAIL_PROVIDER_HOSTS = {
+  Gmail: "imap.gmail.com",
+  Outlook: "outlook.office365.com",
+  Yahoo: "imap.mail.yahoo.com",
+  iCloud: "imap.mail.me.com",
+  AOL: "imap.aol.com",
+  Proton: "imap.protonmail.ch",
+  Other: "",
+} as const;
+
+const EMAIL_PROVIDER_OPTIONS = Object.keys(EMAIL_PROVIDER_HOSTS) as Array<
+  keyof typeof EMAIL_PROVIDER_HOSTS
+>;
+
 const defaultFormState: FormState = {
   label: "",
   retailer: "",
   email: "",
+  emailProvider: "",
   loginEmail: "",
+  shippingName: "",
+  shippingPhone: "",
+  shippingAddr: "",
+  shippingCity: "",
+  shippingState: "",
+  shippingZip: "",
   imapHost: "",
   imapPort: "993",
   imapSecurity: "SSL/TLS",
@@ -40,6 +91,29 @@ const defaultFormState: FormState = {
   loginPassword: "",
   status: "active",
 };
+
+const defaultPaymentForm: PaymentFormState = {
+  cardNumber: "",
+  expMonth: "",
+  expYear: "",
+  cvv: "",
+  cardholderName: "",
+  cardBrand: "",
+};
+
+function normalizeEmailProvider(value: string | null | undefined): keyof typeof EMAIL_PROVIDER_HOSTS | "" {
+  if (!value) {
+    return "";
+  }
+
+  return EMAIL_PROVIDER_OPTIONS.includes(value as keyof typeof EMAIL_PROVIDER_HOSTS)
+    ? (value as keyof typeof EMAIL_PROVIDER_HOSTS)
+    : "Other";
+}
+
+function isManualImapHostProvider(value: string): boolean {
+  return value === "Other" || value === "";
+}
 
 export default function AccountsPage() {
   const { data, error, mutate } = useSWR<AccountsResponse>("/api/aco-accounts", fetchJson);
@@ -51,6 +125,10 @@ export default function AccountsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>(defaultFormState);
   const [showSuccessPulse, setShowSuccessPulse] = useState(false);
+
+  const [cardByAccount, setCardByAccount] = useState<Record<string, CardOnFile | null>>({});
+  const [paymentForms, setPaymentForms] = useState<Record<string, PaymentFormState>>({});
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!statusBanner?.pulse) {
@@ -65,6 +143,26 @@ export default function AccountsPage() {
 
     return () => clearTimeout(timeoutId);
   }, [statusBanner]);
+
+  useEffect(() => {
+    if (!data?.data) {
+      return;
+    }
+
+    for (const account of data.data) {
+      if (account.id in cardByAccount) {
+        continue;
+      }
+
+      void fetchJson<CardOnFileResponse>(`/api/aco-accounts/${account.id}/payment-info`)
+        .then((response) => {
+          setCardByAccount((current) => ({ ...current, [account.id]: response.data }));
+        })
+        .catch(() => {
+          setCardByAccount((current) => ({ ...current, [account.id]: null }));
+        });
+    }
+  }, [cardByAccount, data]);
 
   function resetForm() {
     setFormState(defaultFormState);
@@ -82,12 +180,23 @@ export default function AccountsPage() {
   function startEdit(account: AcoAccount) {
     setStatusBanner(null);
     setEditingId(account.id);
+    const normalizedProvider = normalizeEmailProvider(account.emailProvider);
     setFormState({
       label: account.label,
       retailer: account.retailer,
       email: account.email,
+      emailProvider: normalizedProvider,
       loginEmail: account.loginEmail ?? "",
-      imapHost: account.imapHost,
+      shippingName: account.shippingName ?? "",
+      shippingPhone: account.shippingPhone ?? "",
+      shippingAddr: account.shippingAddr ?? "",
+      shippingCity: account.shippingCity ?? "",
+      shippingState: account.shippingState ?? "",
+      shippingZip: account.shippingZip ?? "",
+      imapHost:
+        normalizedProvider && normalizedProvider !== "Other"
+          ? EMAIL_PROVIDER_HOSTS[normalizedProvider]
+          : account.imapHost,
       imapPort: String(account.imapPort),
       imapSecurity: account.imapSecurity,
       password: "",
@@ -105,7 +214,14 @@ export default function AccountsPage() {
       label: formState.label,
       retailer: formState.retailer,
       email: formState.email,
+      emailProvider: formState.emailProvider || null,
       loginEmail: formState.loginEmail,
+      shippingName: formState.shippingName || null,
+      shippingPhone: formState.shippingPhone || null,
+      shippingAddr: formState.shippingAddr || null,
+      shippingCity: formState.shippingCity || null,
+      shippingState: formState.shippingState || null,
+      shippingZip: formState.shippingZip || null,
       imapHost: formState.imapHost,
       imapPort: Number(formState.imapPort),
       imapSecurity: formState.imapSecurity,
@@ -115,7 +231,7 @@ export default function AccountsPage() {
     };
 
     const response = await fetch(editingId ? `/api/aco-accounts/${editingId}` : "/api/aco-accounts", {
-      method: editingId ? "PUT" : "POST",
+      method: editingId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
@@ -138,6 +254,18 @@ export default function AccountsPage() {
     await mutate();
   }
 
+  function updateEmailProvider(value: string) {
+    const normalizedProvider = normalizeEmailProvider(value);
+    setFormState((current) => ({
+      ...current,
+      emailProvider: normalizedProvider,
+      imapHost:
+        normalizedProvider && normalizedProvider !== "Other"
+          ? EMAIL_PROVIDER_HOSTS[normalizedProvider]
+          : current.imapHost,
+    }));
+  }
+
   async function deleteAccount(id: string) {
     setDeletingId(id);
 
@@ -154,6 +282,17 @@ export default function AccountsPage() {
       if (editingId === id) {
         resetForm();
       }
+
+      setCardByAccount((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      setPaymentForms((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
 
       setStatusBanner({ message: "Account deleted.", tone: "success" });
       await mutate();
@@ -203,12 +342,80 @@ export default function AccountsPage() {
     }
   }
 
+  function getPaymentForm(accountId: string): PaymentFormState {
+    return paymentForms[accountId] ?? defaultPaymentForm;
+  }
+
+  function setPaymentFormField(accountId: string, field: keyof PaymentFormState, value: string) {
+    setPaymentForms((current) => ({
+      ...current,
+      [accountId]: {
+        ...getPaymentForm(accountId),
+        [field]: value,
+      },
+    }));
+  }
+
+  async function submitPaymentInfo(accountId: string, event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmittingPayment((current) => ({ ...current, [accountId]: true }));
+
+    const form = getPaymentForm(accountId);
+
+    const payload = {
+      cardNumber: form.cardNumber,
+      expMonth: toSafeNumber(form.expMonth),
+      expYear: toSafeNumber(form.expYear),
+      cvv: form.cvv,
+      cardholderName: form.cardholderName,
+      cardBrand: form.cardBrand,
+    };
+
+    try {
+      const response = await fetch(`/api/aco-accounts/${accountId}/payment-info`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const body = (await response.json().catch(() => null)) as
+        | { data?: CardOnFile; error?: string }
+        | null;
+
+      if (!response.ok || !body?.data) {
+        const detailsText =
+          body && typeof body === "object" && "details" in body
+            ? JSON.stringify((body as { details?: unknown }).details)
+            : undefined;
+        setStatusBanner({
+          message:
+            body?.error && detailsText
+              ? `${body.error}: ${detailsText}`
+              : body?.error ?? "Failed to save payment method.",
+          tone: "error",
+        });
+        return;
+      }
+
+      setCardByAccount((current) => ({ ...current, [accountId]: body.data ?? null }));
+      setPaymentForms((current) => ({ ...current, [accountId]: defaultPaymentForm }));
+      setStatusBanner({
+        message: "Payment method relayed and display card saved.",
+        tone: "success",
+      });
+    } finally {
+      setIsSubmittingPayment((current) => ({ ...current, [accountId]: false }));
+    }
+  }
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="font-heading text-3xl font-bold">Accounts</h1>
-          <p className="mt-1 text-sm text-[#9C9AAE]">Manage IMAP inboxes and retailer login credentials for automation accounts.</p>
+          <p className="mt-1 text-sm text-[#9C9AAE]">
+            Manage IMAP inboxes, per-account shipping, and payment relay settings.
+          </p>
         </div>
         <button
           type="button"
@@ -220,26 +427,189 @@ export default function AccountsPage() {
       </header>
 
       {showForm ? (
-        <form onSubmit={submit} className="grid gap-3 rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4 md:grid-cols-2">
-          <input value={formState.label} onChange={(event) => setFormState((current) => ({ ...current, label: event.target.value }))} placeholder="Label" required className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-          <input value={formState.retailer} onChange={(event) => setFormState((current) => ({ ...current, retailer: event.target.value }))} placeholder="Retailer" required className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-          <input value={formState.email} onChange={(event) => setFormState((current) => ({ ...current, email: event.target.value }))} type="email" placeholder="IMAP email" required className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-          <input value={formState.loginEmail} onChange={(event) => setFormState((current) => ({ ...current, loginEmail: event.target.value }))} type="email" placeholder="Retail login email" required className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-          <input value={formState.imapHost} onChange={(event) => setFormState((current) => ({ ...current, imapHost: event.target.value }))} placeholder="IMAP Host" required className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-          <input value={formState.imapPort} onChange={(event) => setFormState((current) => ({ ...current, imapPort: event.target.value }))} type="number" required className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-          <input value={formState.imapSecurity} onChange={(event) => setFormState((current) => ({ ...current, imapSecurity: event.target.value }))} placeholder="IMAP security" required className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm" />
-          <select value={formState.status} onChange={(event) => setFormState((current) => ({ ...current, status: event.target.value as FormState["status"] }))} className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm">
+        <form
+          onSubmit={submit}
+          className="grid gap-3 rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4 md:grid-cols-2"
+        >
+          <input
+            value={formState.label}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, label: event.target.value }))
+            }
+            placeholder="Label"
+            required
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.retailer}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, retailer: event.target.value }))
+            }
+            placeholder="Retailer"
+            required
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.email}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, email: event.target.value }))
+            }
+            type="email"
+            placeholder="IMAP email"
+            required
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <select
+            value={normalizeEmailProvider(formState.emailProvider)}
+            onChange={(event) => updateEmailProvider(event.target.value)}
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          >
+            <option value="">Select email provider</option>
+            {EMAIL_PROVIDER_OPTIONS.map((provider) => (
+              <option key={provider} value={provider}>
+                {provider}
+              </option>
+            ))}
+          </select>
+          <input
+            value={formState.loginEmail}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, loginEmail: event.target.value }))
+            }
+            type="email"
+            placeholder="Retail login email"
+            required
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.shippingName}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, shippingName: event.target.value }))
+            }
+            placeholder="Shipping name"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.shippingPhone}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, shippingPhone: event.target.value }))
+            }
+            placeholder="Shipping phone"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.shippingAddr}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, shippingAddr: event.target.value }))
+            }
+            placeholder="Shipping address"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
+          />
+          <input
+            value={formState.shippingCity}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, shippingCity: event.target.value }))
+            }
+            placeholder="Shipping city"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.shippingState}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, shippingState: event.target.value }))
+            }
+            placeholder="Shipping state"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.shippingZip}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, shippingZip: event.target.value }))
+            }
+            placeholder="Shipping ZIP"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.imapHost}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, imapHost: event.target.value }))
+            }
+            placeholder="IMAP Host"
+            required
+            readOnly={!isManualImapHostProvider(formState.emailProvider)}
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.imapPort}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, imapPort: event.target.value }))
+            }
+            type="number"
+            required
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.imapSecurity}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, imapSecurity: event.target.value }))
+            }
+            placeholder="IMAP security"
+            required
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <select
+            value={formState.status}
+            onChange={(event) =>
+              setFormState((current) => ({
+                ...current,
+                status: event.target.value as FormState["status"],
+              }))
+            }
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          >
             <option value="active">Active</option>
             <option value="locked">Locked</option>
             <option value="banned">Banned</option>
           </select>
-          <input value={formState.password} onChange={(event) => setFormState((current) => ({ ...current, password: event.target.value }))} type="password" placeholder={editingId ? "New IMAP password (leave blank to keep current)" : "IMAP password"} required={!editingId} className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2" />
-          <input value={formState.loginPassword} onChange={(event) => setFormState((current) => ({ ...current, loginPassword: event.target.value }))} type="password" placeholder={editingId ? "New retail login password (leave blank to keep current)" : "Retail login password"} required={!editingId} className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2" />
+          <input
+            value={formState.password}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, password: event.target.value }))
+            }
+            type="password"
+            placeholder={
+              editingId ? "New IMAP password (leave blank to keep current)" : "IMAP password"
+            }
+            required={!editingId}
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
+          />
+          <input
+            value={formState.loginPassword}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, loginPassword: event.target.value }))
+            }
+            type="password"
+            placeholder={
+              editingId
+                ? "New retail login password (leave blank to keep current)"
+                : "Retail login password"
+            }
+            required={!editingId}
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
+          />
           <div className="flex flex-col gap-3 md:col-span-2 md:flex-row">
-            <button type="submit" disabled={isSubmitting} className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6]">
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6]"
+            >
               {isSubmitting ? "Saving..." : editingId ? "Save changes" : "Save account"}
             </button>
-            <button type="button" onClick={resetForm} className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE]">
+            <button
+              type="button"
+              onClick={resetForm}
+              className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE]"
+            >
               Cancel
             </button>
           </div>
@@ -254,7 +624,11 @@ export default function AccountsPage() {
               : statusBanner.tone === "error"
                 ? "border-[#FF5D5D]/70 bg-[#2A1317] text-[#FFC0C0]"
                 : "border-[#4C79FF]/70 bg-[#111B38] text-[#C8D8FF]"
-          } ${showSuccessPulse ? "animate-[pulse_1s_ease-in-out_2] shadow-[0_0_0_1px_rgba(74,222,128,0.2),0_0_22px_rgba(74,222,128,0.45)]" : ""}`}
+          } ${
+            showSuccessPulse
+              ? "animate-[pulse_1s_ease-in-out_2] shadow-[0_0_0_1px_rgba(74,222,128,0.2),0_0_22px_rgba(74,222,128,0.45)]"
+              : ""
+          }`}
           role="status"
           aria-live="polite"
         >
@@ -262,72 +636,178 @@ export default function AccountsPage() {
           {statusBanner.message}
         </div>
       ) : null}
+
       {error ? <p className="text-sm text-[#FF5D5D]">Failed to load accounts.</p> : null}
       {!data ? <p className="text-sm text-[#9C9AAE]">Loading accounts...</p> : null}
 
       <section className="space-y-3">
-        {data?.data.map((account) => (
-          <article key={account.id} className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
-            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-              <div>
-                <p className="font-heading text-xl font-semibold">{account.label}</p>
-                <p className="mt-1 text-sm text-[#9C9AAE]">
-                  {account.retailer} • {account.email}
+        {data?.data.map((account) => {
+          const card = cardByAccount[account.id];
+          const paymentForm = getPaymentForm(account.id);
+          const isSavingPayment = isSubmittingPayment[account.id] === true;
+
+          return (
+            <article key={account.id} className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
+              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="font-heading text-xl font-semibold">{account.label}</p>
+                  <p className="mt-1 text-sm text-[#9C9AAE]">
+                    {account.retailer} • {account.email}
+                  </p>
+                </div>
+                <span
+                  className={`rounded-full border px-2 py-1 text-xs ${
+                    account.status === "active"
+                      ? "border-[#4ADE80]/40 text-[#4ADE80]"
+                      : account.status === "locked"
+                        ? "border-[#FFCB3C]/40 text-[#FFCB3C]"
+                        : "border-[#FF5D5D]/40 text-[#FF5D5D]"
+                  }`}
+                >
+                  {account.status}
+                </span>
+              </div>
+
+              <div className="mt-3 grid gap-1 text-sm text-[#9C9AAE]">
+                <p>
+                  IMAP: {account.imapHost}:{account.imapPort} ({account.imapSecurity})
+                </p>
+                <p>Email provider: {account.emailProvider ?? "not set yet"}</p>
+                <p>IMAP login: {account.email}</p>
+                <p>Retail login: {account.loginEmail ?? "not set yet"}</p>
+                <p>
+                  Shipping: {account.shippingName ?? "N/A"} • {account.shippingAddr ?? "N/A"}
+                </p>
+                <p className="text-xs text-[#605E72]">
+                  Last sync: {account.lastSyncAt ? formatDate(account.lastSyncAt) : "never"}
                 </p>
               </div>
-              <span
-                className={`rounded-full border px-2 py-1 text-xs ${
-                  account.status === "active"
-                    ? "border-[#4ADE80]/40 text-[#4ADE80]"
-                    : account.status === "locked"
-                      ? "border-[#FFCB3C]/40 text-[#FFCB3C]"
-                      : "border-[#FF5D5D]/40 text-[#FF5D5D]"
-                }`}
-              >
-                {account.status}
-              </span>
-            </div>
 
-            <div className="mt-3 grid gap-1 text-sm text-[#9C9AAE]">
-              <p>
-                IMAP: {account.imapHost}:{account.imapPort} ({account.imapSecurity})
-              </p>
-              <p>IMAP login: {account.email}</p>
-              <p>Retail login: {account.loginEmail ?? "not set yet"}</p>
-              <p>Passwords: •••••••••••• / ••••••••••••</p>
-              <p className="text-xs text-[#605E72]">
-                Last sync: {account.lastSyncAt ? formatDate(account.lastSyncAt) : "never"}
-              </p>
-            </div>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => testImapConnection(account.id)}
+                  disabled={testingId === account.id}
+                  className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6] disabled:opacity-60"
+                >
+                  {testingId === account.id ? "Testing..." : "Test IMAP connection"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startEdit(account)}
+                  className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
+                >
+                  Edit account + shipping
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteAccount(account.id)}
+                  disabled={deletingId === account.id}
+                  className="rounded-md border border-[#5A2323] px-3 py-2 text-sm text-[#FF9A9A] hover:text-[#FFD1D1] disabled:opacity-60"
+                >
+                  {deletingId === account.id ? "Deleting..." : "Delete"}
+                </button>
+              </div>
 
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => testImapConnection(account.id)}
-                disabled={testingId === account.id}
-                className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6] disabled:opacity-60"
-              >
-                {testingId === account.id ? "Testing..." : "Test IMAP connection"}
-              </button>
-              <button
-                type="button"
-                onClick={() => startEdit(account)}
-                className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => deleteAccount(account.id)}
-                disabled={deletingId === account.id}
-                className="rounded-md border border-[#5A2323] px-3 py-2 text-sm text-[#FF9A9A] hover:text-[#FFD1D1] disabled:opacity-60"
-              >
-                {deletingId === account.id ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </article>
-        ))}
-        {data && data.data.length === 0 ? <p className="text-sm text-[#605E72]">No ACO accounts yet.</p> : null}
+              <div className="mt-5 rounded-lg border border-[#2C2D3A] bg-[#101014] p-4">
+                <p className="font-heading text-lg font-semibold">Payment method</p>
+                {card ? (
+                  <div className="mt-2 text-sm text-[#9C9AAE]">
+                    <p>
+                      {card.cardBrand ?? "Card"} •••• {card.last4 ?? "----"}
+                    </p>
+                    <p>
+                      Expires {card.expMonth ?? "--"}/{card.expYear ?? "----"}
+                    </p>
+                    <p>Cardholder: {card.cardholderName ?? "N/A"}</p>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-[#9C9AAE]">No card on file yet.</p>
+                )}
+
+                <form
+                  onSubmit={(event) => void submitPaymentInfo(account.id, event)}
+                  className="mt-3 grid gap-2 md:grid-cols-2"
+                >
+                  <input
+                    value={paymentForm.cardholderName}
+                    onChange={(event) =>
+                      setPaymentFormField(account.id, "cardholderName", event.target.value)
+                    }
+                    placeholder="Cardholder name"
+                    required
+                    autoComplete="cc-name"
+                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={paymentForm.cardBrand}
+                    onChange={(event) =>
+                      setPaymentFormField(account.id, "cardBrand", event.target.value)
+                    }
+                    placeholder="Card brand"
+                    required
+                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={paymentForm.cardNumber}
+                    onChange={(event) =>
+                      setPaymentFormField(account.id, "cardNumber", event.target.value)
+                    }
+                    placeholder="Card number"
+                    required
+                    autoComplete="cc-number"
+                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm md:col-span-2"
+                  />
+                  <input
+                    value={paymentForm.expMonth}
+                    onChange={(event) =>
+                      setPaymentFormField(account.id, "expMonth", event.target.value)
+                    }
+                    placeholder="Expiry month"
+                    required
+                    type="number"
+                    min={1}
+                    max={12}
+                    autoComplete="cc-exp-month"
+                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={paymentForm.expYear}
+                    onChange={(event) =>
+                      setPaymentFormField(account.id, "expYear", event.target.value)
+                    }
+                    placeholder="Expiry year"
+                    required
+                    type="number"
+                    min={2024}
+                    max={2100}
+                    autoComplete="cc-exp-year"
+                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={paymentForm.cvv}
+                    onChange={(event) => setPaymentFormField(account.id, "cvv", event.target.value)}
+                    placeholder="CVV"
+                    required
+                    type="password"
+                    autoComplete="cc-csc"
+                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSavingPayment}
+                    className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
+                  >
+                    {isSavingPayment ? "Saving..." : card ? "Update payment method" : "Add payment method"}
+                  </button>
+                </form>
+              </div>
+            </article>
+          );
+        })}
+        {data && data.data.length === 0 ? (
+          <p className="text-sm text-[#605E72]">No ACO accounts yet.</p>
+        ) : null}
       </section>
     </div>
   );
