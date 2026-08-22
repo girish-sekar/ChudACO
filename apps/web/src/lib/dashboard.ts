@@ -52,6 +52,7 @@ export type AcoAccount = {
   retailer: string;
   email: string;
   emailProvider: string | null;
+  onlyOneCheckout: boolean;
   loginEmail: string | null;
   shippingName: string | null;
   shippingPhone: string | null;
@@ -59,11 +60,23 @@ export type AcoAccount = {
   shippingCity: string | null;
   shippingState: string | null;
   shippingZip: string | null;
+  billingSameAsShipping: boolean;
+  billingName: string | null;
+  billingPhone: string | null;
+  billingAddr: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingZip: string | null;
   status: "active" | "locked" | "banned";
   imapHost: string;
   imapPort: number;
   imapSecurity: string;
   lastSyncAt: string | null;
+  retailerLogins: {
+    id: string;
+    retailer: string;
+    loginEmail: string;
+  }[];
 };
 
 export type CardOnFile = {

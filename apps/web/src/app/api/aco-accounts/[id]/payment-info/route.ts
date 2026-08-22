@@ -75,12 +75,20 @@ export async function POST(request: Request, context: RouteParams) {
       label: true,
       email: true,
       loginEmail: true,
+      onlyOneCheckout: true,
       shippingName: true,
       shippingPhone: true,
       shippingAddr: true,
       shippingCity: true,
       shippingState: true,
       shippingZip: true,
+      billingSameAsShipping: true,
+      billingName: true,
+      billingPhone: true,
+      billingAddr: true,
+      billingCity: true,
+      billingState: true,
+      billingZip: true,
     },
   });
 
@@ -113,12 +121,24 @@ export async function POST(request: Request, context: RouteParams) {
   const shippingState = account.shippingState ?? "";
   const shippingPostCode = account.shippingZip ?? "";
   const shippingCountry = "US";
-  const billingName = parsed.data.cardholderName;
-  const billingPhone = shippingPhone;
-  const billingAddress = shippingAddress;
-  const billingCity = shippingCity;
-  const billingState = shippingState;
-  const billingPostCode = shippingPostCode;
+  const billingName = account.billingSameAsShipping
+    ? shippingName
+    : (account.billingName ?? parsed.data.cardholderName);
+  const billingPhone = account.billingSameAsShipping
+    ? shippingPhone
+    : (account.billingPhone ?? "");
+  const billingAddress = account.billingSameAsShipping
+    ? shippingAddress
+    : (account.billingAddr ?? "");
+  const billingCity = account.billingSameAsShipping
+    ? shippingCity
+    : (account.billingCity ?? "");
+  const billingState = account.billingSameAsShipping
+    ? shippingState
+    : (account.billingState ?? "");
+  const billingPostCode = account.billingSameAsShipping
+    ? shippingPostCode
+    : (account.billingZip ?? "");
   const billingCountry = shippingCountry;
   const otherEntriesList = JSON.stringify({
     acoAccountId: account.id,
@@ -127,6 +147,8 @@ export async function POST(request: Request, context: RouteParams) {
   const sheetRow = buildGoogleSheetRow({
     emailAddress,
     profileName,
+    onlyOneCheckout: account.onlyOneCheckout,
+    sameBillingShipping: account.billingSameAsShipping,
     nameOnCard: parsed.data.cardholderName,
     cardType: parsed.data.cardBrand,
     cardNumber: normalizedCardNumber,

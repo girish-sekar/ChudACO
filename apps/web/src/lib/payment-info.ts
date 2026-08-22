@@ -133,6 +133,8 @@ export function getGoogleSheetsConfig(): GoogleSheetsConfig {
 type GoogleSheetRowInput = {
   emailAddress: string;
   profileName: string;
+  onlyOneCheckout: boolean;
+  sameBillingShipping: boolean;
   nameOnCard: string;
   cardType: string;
   cardNumber: string;
@@ -161,14 +163,14 @@ export function buildGoogleSheetRow(values: GoogleSheetRowInput): string[] {
   return [
     values.emailAddress,
     values.profileName,
-    "TRUE",
+    values.onlyOneCheckout ? "TRUE" : "FALSE",
     values.nameOnCard,
     values.cardType,
     values.cardNumber,
     String(values.expirationMonth),
     String(values.expirationYear),
     values.cvv,
-    "TRUE",
+    values.sameBillingShipping ? "TRUE" : "FALSE",
     values.shippingName,
     values.shippingPhone,
     values.shippingAddress,

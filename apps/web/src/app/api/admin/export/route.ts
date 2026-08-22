@@ -19,6 +19,7 @@ type ExportRow = {
   acoAccountId: string;
   acoLabel: string;
   acoRetailer: string;
+  acoRetailerLogins: string[];
   acoEmail: string;
   acoLoginEmail: string | null;
   acoStatus: string;
@@ -147,6 +148,11 @@ export async function GET(request: NextRequest) {
         orderBy: { label: "asc" },
         include: {
           cardOnFile: true,
+          retailerLogins: {
+            select: {
+              retailer: true,
+            },
+          },
         },
       },
     },
@@ -169,6 +175,13 @@ export async function GET(request: NextRequest) {
       acoAccountId: account.id,
       acoLabel: account.label,
       acoRetailer: account.retailer,
+      acoRetailerLogins: Array.from(
+        new Set(
+          account.retailerLogins
+            .map((entry) => entry.retailer.trim())
+            .filter((retailer) => retailer.length > 0),
+        ),
+      ),
       acoEmail: account.email,
       acoLoginEmail: account.loginEmail,
       acoStatus: account.status,

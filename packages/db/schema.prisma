@@ -86,12 +86,20 @@ model AcoAccount {
   retailer          String
   email             String
   emailProvider     String?
+  onlyOneCheckout   Boolean   @default(true)
   shippingName      String?
   shippingPhone     String?
   shippingAddr      String?
   shippingCity      String?
   shippingState     String?
   shippingZip       String?
+  billingSameAsShipping Boolean @default(true)
+  billingName       String?
+  billingPhone      String?
+  billingAddr       String?
+  billingCity       String?
+  billingState      String?
+  billingZip        String?
   loginEmail        String?
   status            AcoStatus @default(active)
   imapHost          String
@@ -104,6 +112,21 @@ model AcoAccount {
   lastSyncAt        DateTime?
   checkouts         Checkout[]
   cardOnFile        CardOnFile?
+  retailerLogins    AcoRetailerLogin[]
+}
+
+model AcoRetailerLogin {
+  id                   String     @id @default(cuid())
+  acoAccountId         String
+  acoAccount           AcoAccount @relation(fields: [acoAccountId], references: [id], onDelete: Cascade)
+  retailer             String
+  loginEmail           String
+  encryptedLoginPassword String?
+  loginPasswordIv      String?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  @@index([acoAccountId])
 }
 
 enum AcoStatus {

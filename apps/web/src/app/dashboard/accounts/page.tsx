@@ -26,21 +26,31 @@ type StatusBanner = {
 
 type FormState = {
   label: string;
-  retailer: string;
   email: string;
   emailProvider: string;
-  loginEmail: string;
+  onlyOneCheckout: boolean;
+  retailerLogins: Array<{
+    retailer: string;
+    loginEmail: string;
+    loginPassword: string;
+  }>;
   shippingName: string;
   shippingPhone: string;
   shippingAddr: string;
   shippingCity: string;
   shippingState: string;
   shippingZip: string;
+  billingSameAsShipping: boolean;
+  billingName: string;
+  billingPhone: string;
+  billingAddr: string;
+  billingCity: string;
+  billingState: string;
+  billingZip: string;
   imapHost: string;
   imapPort: string;
   imapSecurity: string;
   password: string;
-  loginPassword: string;
   status: "active" | "locked" | "banned";
 };
 
@@ -74,21 +84,27 @@ const EMAIL_PROVIDER_OPTIONS = Object.keys(EMAIL_PROVIDER_HOSTS) as Array<
 
 const defaultFormState: FormState = {
   label: "",
-  retailer: "",
   email: "",
   emailProvider: "",
-  loginEmail: "",
+  onlyOneCheckout: true,
+  retailerLogins: [{ retailer: "", loginEmail: "", loginPassword: "" }],
   shippingName: "",
   shippingPhone: "",
   shippingAddr: "",
   shippingCity: "",
   shippingState: "",
   shippingZip: "",
+  billingSameAsShipping: true,
+  billingName: "",
+  billingPhone: "",
+  billingAddr: "",
+  billingCity: "",
+  billingState: "",
+  billingZip: "",
   imapHost: "",
   imapPort: "993",
   imapSecurity: "SSL/TLS",
   password: "",
-  loginPassword: "",
   status: "active",
 };
 
@@ -183,16 +199,36 @@ export default function AccountsPage() {
     const normalizedProvider = normalizeEmailProvider(account.emailProvider);
     setFormState({
       label: account.label,
-      retailer: account.retailer,
       email: account.email,
       emailProvider: normalizedProvider,
-      loginEmail: account.loginEmail ?? "",
+      onlyOneCheckout: account.onlyOneCheckout,
+      retailerLogins:
+        account.retailerLogins.length > 0
+          ? account.retailerLogins.map((entry) => ({
+              retailer: entry.retailer,
+              loginEmail: entry.loginEmail,
+              loginPassword: "",
+            }))
+          : [
+              {
+                retailer: account.retailer,
+                loginEmail: account.loginEmail ?? "",
+                loginPassword: "",
+              },
+            ],
       shippingName: account.shippingName ?? "",
       shippingPhone: account.shippingPhone ?? "",
       shippingAddr: account.shippingAddr ?? "",
       shippingCity: account.shippingCity ?? "",
       shippingState: account.shippingState ?? "",
       shippingZip: account.shippingZip ?? "",
+      billingSameAsShipping: account.billingSameAsShipping,
+      billingName: account.billingName ?? "",
+      billingPhone: account.billingPhone ?? "",
+      billingAddr: account.billingAddr ?? "",
+      billingCity: account.billingCity ?? "",
+      billingState: account.billingState ?? "",
+      billingZip: account.billingZip ?? "",
       imapHost:
         normalizedProvider && normalizedProvider !== "Other"
           ? EMAIL_PROVIDER_HOSTS[normalizedProvider]
@@ -200,33 +236,90 @@ export default function AccountsPage() {
       imapPort: String(account.imapPort),
       imapSecurity: account.imapSecurity,
       password: "",
-      loginPassword: "",
       status: account.status,
     });
     setShowForm(true);
+  }
+
+  function setRetailerLoginField(
+    index: number,
+    field: "retailer" | "loginEmail" | "loginPassword",
+    value: string,
+  ) {
+    setFormState((current) => ({
+      ...current,
+      retailerLogins: current.retailerLogins.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, [field]: value } : entry,
+      ),
+    }));
+  }
+
+  function addRetailerLoginRow() {
+    setFormState((current) => ({
+      ...current,
+      retailerLogins: [...current.retailerLogins, { retailer: "", loginEmail: "", loginPassword: "" }],
+    }));
+  }
+
+  function removeRetailerLoginRow(index: number) {
+    setFormState((current) => {
+      if (current.retailerLogins.length <= 1) {
+        return current;
+      }
+
+      return {
+        ...current,
+        retailerLogins: current.retailerLogins.filter((_, entryIndex) => entryIndex !== index),
+      };
+    });
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
 
+    const cleanedRetailerLogins = formState.retailerLogins
+      .map((entry) => ({
+        retailer: entry.retailer.trim(),
+        loginEmail: entry.loginEmail.trim(),
+        loginPassword: entry.loginPassword,
+      }))
+      .filter((entry) => entry.retailer.length > 0 || entry.loginEmail.length > 0);
+
+    if (cleanedRetailerLogins.length === 0) {
+      setIsSubmitting(false);
+      setStatusBanner({ message: "Add at least one retailer login entry.", tone: "error" });
+      return;
+    }
+
+    const firstRetailLogin = cleanedRetailerLogins[0];
+
     const payload = {
       label: formState.label,
-      retailer: formState.retailer,
+      retailer: firstRetailLogin.retailer,
       email: formState.email,
       emailProvider: formState.emailProvider || null,
-      loginEmail: formState.loginEmail,
+      onlyOneCheckout: formState.onlyOneCheckout,
+      loginEmail: firstRetailLogin.loginEmail,
+      retailerLogins: cleanedRetailerLogins,
       shippingName: formState.shippingName || null,
       shippingPhone: formState.shippingPhone || null,
       shippingAddr: formState.shippingAddr || null,
       shippingCity: formState.shippingCity || null,
       shippingState: formState.shippingState || null,
       shippingZip: formState.shippingZip || null,
+      billingSameAsShipping: formState.billingSameAsShipping,
+      billingName: formState.billingSameAsShipping ? null : formState.billingName || null,
+      billingPhone: formState.billingSameAsShipping ? null : formState.billingPhone || null,
+      billingAddr: formState.billingSameAsShipping ? null : formState.billingAddr || null,
+      billingCity: formState.billingSameAsShipping ? null : formState.billingCity || null,
+      billingState: formState.billingSameAsShipping ? null : formState.billingState || null,
+      billingZip: formState.billingSameAsShipping ? null : formState.billingZip || null,
       imapHost: formState.imapHost,
       imapPort: Number(formState.imapPort),
       imapSecurity: formState.imapSecurity,
       password: formState.password,
-      loginPassword: formState.loginPassword,
+      loginPassword: firstRetailLogin.loginPassword,
       status: formState.status,
     };
 
@@ -239,15 +332,27 @@ export default function AccountsPage() {
     setIsSubmitting(false);
 
     if (!response.ok) {
+      const errorBody = (await response.json().catch(() => null)) as
+        | { error?: string; detail?: string }
+        | null;
+
       setStatusBanner({
-        message: editingId ? "Failed to update account." : "Failed to create account.",
+        message:
+          errorBody?.detail
+            ? `${errorBody?.error ?? (editingId ? "Failed to update account" : "Failed to create account")}: ${errorBody.detail}`
+            : errorBody?.error ?? (editingId ? "Failed to update account." : "Failed to create account."),
         tone: "error",
       });
       return;
     }
 
+    const body = (await response.json().catch(() => null)) as
+      | { warning?: string }
+      | null;
+
     setStatusBanner({
-      message: editingId ? "Account updated." : "Account added.",
+      message:
+        body?.warning ?? (editingId ? "Account updated." : "Account added."),
       tone: "success",
     });
     resetForm();
@@ -441,15 +546,6 @@ export default function AccountsPage() {
             className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
           />
           <input
-            value={formState.retailer}
-            onChange={(event) =>
-              setFormState((current) => ({ ...current, retailer: event.target.value }))
-            }
-            placeholder="Retailer"
-            required
-            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
-          />
-          <input
             value={formState.email}
             onChange={(event) =>
               setFormState((current) => ({ ...current, email: event.target.value }))
@@ -471,16 +567,76 @@ export default function AccountsPage() {
               </option>
             ))}
           </select>
-          <input
-            value={formState.loginEmail}
-            onChange={(event) =>
-              setFormState((current) => ({ ...current, loginEmail: event.target.value }))
-            }
-            type="email"
-            placeholder="Retail login email"
-            required
-            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
-          />
+          <label className="flex items-center gap-2 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#9C9AAE]">
+            <input
+              type="checkbox"
+              checked={formState.onlyOneCheckout}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  onlyOneCheckout: event.target.checked,
+                }))
+              }
+            />
+            Only one checkout
+          </label>
+          <div className="rounded-md border border-[#2C2D3A] bg-[#101014] p-3 md:col-span-2">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-medium">Retailer logins</p>
+              <button
+                type="button"
+                onClick={addRetailerLoginRow}
+                className="rounded-md border border-[#2C2D3A] px-2 py-1 text-xs text-[#9C9AAE] hover:text-[#F2F1F6]"
+              >
+                Add retailer
+              </button>
+            </div>
+            <div className="space-y-2">
+              {formState.retailerLogins.map((entry, index) => (
+                <div key={index} className="grid gap-2 md:grid-cols-3">
+                  <input
+                    value={entry.retailer}
+                    onChange={(event) => setRetailerLoginField(index, "retailer", event.target.value)}
+                    placeholder="Retailer"
+                    required
+                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={entry.loginEmail}
+                    onChange={(event) => setRetailerLoginField(index, "loginEmail", event.target.value)}
+                    type="email"
+                    placeholder="Retail login email"
+                    required
+                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      value={entry.loginPassword}
+                      onChange={(event) =>
+                        setRetailerLoginField(index, "loginPassword", event.target.value)
+                      }
+                      type="password"
+                      placeholder={
+                        editingId
+                          ? "Optional: leave blank to keep or no-password guest"
+                          : "Optional: retail login password (guest checkout can be blank)"
+                      }
+                      className="w-full rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                    />
+                    {formState.retailerLogins.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => removeRetailerLoginRow(index)}
+                        className="rounded-md border border-[#5A2323] px-2 py-2 text-xs text-[#FF9A9A] hover:text-[#FFD1D1]"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
           <input
             value={formState.shippingName}
             onChange={(event) =>
@@ -529,6 +685,71 @@ export default function AccountsPage() {
             placeholder="Shipping ZIP"
             className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
           />
+          <label className="flex items-center gap-2 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#9C9AAE] md:col-span-2">
+            <input
+              type="checkbox"
+              checked={formState.billingSameAsShipping}
+              onChange={(event) =>
+                setFormState((current) => ({
+                  ...current,
+                  billingSameAsShipping: event.target.checked,
+                }))
+              }
+            />
+            Billing and shipping addresses are the same
+          </label>
+          {!formState.billingSameAsShipping ? (
+            <>
+              <input
+                value={formState.billingName}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, billingName: event.target.value }))
+                }
+                placeholder="Billing name"
+                className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+              />
+              <input
+                value={formState.billingPhone}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, billingPhone: event.target.value }))
+                }
+                placeholder="Billing phone"
+                className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+              />
+              <input
+                value={formState.billingAddr}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, billingAddr: event.target.value }))
+                }
+                placeholder="Billing address"
+                className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
+              />
+              <input
+                value={formState.billingCity}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, billingCity: event.target.value }))
+                }
+                placeholder="Billing city"
+                className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+              />
+              <input
+                value={formState.billingState}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, billingState: event.target.value }))
+                }
+                placeholder="Billing state"
+                className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+              />
+              <input
+                value={formState.billingZip}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, billingZip: event.target.value }))
+                }
+                placeholder="Billing ZIP"
+                className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+              />
+            </>
+          ) : null}
           <input
             value={formState.imapHost}
             onChange={(event) =>
@@ -583,20 +804,6 @@ export default function AccountsPage() {
             required={!editingId}
             className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
           />
-          <input
-            value={formState.loginPassword}
-            onChange={(event) =>
-              setFormState((current) => ({ ...current, loginPassword: event.target.value }))
-            }
-            type="password"
-            placeholder={
-              editingId
-                ? "New retail login password (leave blank to keep current)"
-                : "Retail login password"
-            }
-            required={!editingId}
-            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
-          />
           <div className="flex flex-col gap-3 md:col-span-2 md:flex-row">
             <button
               type="submit"
@@ -645,6 +852,10 @@ export default function AccountsPage() {
           const card = cardByAccount[account.id];
           const paymentForm = getPaymentForm(account.id);
           const isSavingPayment = isSubmittingPayment[account.id] === true;
+          const retailerNames = account.retailerLogins.map((entry) => entry.retailer).join(", ");
+          const retailerLoginEmails = account.retailerLogins
+            .map((entry) => entry.loginEmail)
+            .join(", ");
 
           return (
             <article key={account.id} className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
@@ -652,7 +863,7 @@ export default function AccountsPage() {
                 <div>
                   <p className="font-heading text-xl font-semibold">{account.label}</p>
                   <p className="mt-1 text-sm text-[#9C9AAE]">
-                    {account.retailer} • {account.email}
+                    {account.email}
                   </p>
                 </div>
                 <span
@@ -673,10 +884,15 @@ export default function AccountsPage() {
                   IMAP: {account.imapHost}:{account.imapPort} ({account.imapSecurity})
                 </p>
                 <p>Email provider: {account.emailProvider ?? "not set yet"}</p>
+                <p>Checkout mode: {account.onlyOneCheckout ? "single checkout" : "multiple allowed"}</p>
                 <p>IMAP login: {account.email}</p>
-                <p>Retail login: {account.loginEmail ?? "not set yet"}</p>
+                <p>Retailers: {retailerNames || account.retailer}</p>
+                <p>Retail logins: {retailerLoginEmails || account.loginEmail || "not set yet"}</p>
                 <p>
                   Shipping: {account.shippingName ?? "N/A"} • {account.shippingAddr ?? "N/A"}
+                </p>
+                <p>
+                  Billing: {account.billingSameAsShipping ? "same as shipping" : `${account.billingName ?? "N/A"} • ${account.billingAddr ?? "N/A"}`}
                 </p>
                 <p className="text-xs text-[#605E72]">
                   Last sync: {account.lastSyncAt ? formatDate(account.lastSyncAt) : "never"}

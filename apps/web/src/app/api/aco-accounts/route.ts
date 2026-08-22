@@ -10,18 +10,36 @@ const createAcoAccountSchema = z.object({
   retailer: z.string().trim().min(1),
   email: z.string().trim().email(),
   emailProvider: z.string().trim().max(120).nullable().optional(),
+  onlyOneCheckout: z.boolean().optional(),
+  billingSameAsShipping: z.boolean().optional(),
   loginEmail: z.string().trim().email(),
+  retailerLogins: z
+    .array(
+      z.object({
+        retailer: z.string().trim().min(1),
+        loginEmail: z.string().trim().email(),
+        loginPassword: z.string().optional(),
+      }),
+    )
+    .min(1)
+    .optional(),
   shippingName: z.string().trim().max(200).nullable().optional(),
   shippingPhone: z.string().trim().max(50).nullable().optional(),
   shippingAddr: z.string().trim().max(300).nullable().optional(),
   shippingCity: z.string().trim().max(120).nullable().optional(),
   shippingState: z.string().trim().max(120).nullable().optional(),
   shippingZip: z.string().trim().max(30).nullable().optional(),
+  billingName: z.string().trim().max(200).nullable().optional(),
+  billingPhone: z.string().trim().max(50).nullable().optional(),
+  billingAddr: z.string().trim().max(300).nullable().optional(),
+  billingCity: z.string().trim().max(120).nullable().optional(),
+  billingState: z.string().trim().max(120).nullable().optional(),
+  billingZip: z.string().trim().max(30).nullable().optional(),
   imapHost: z.string().trim().min(1),
   imapPort: z.number().int().min(1).max(65535),
   imapSecurity: z.string().trim().min(1),
   password: z.string().min(1),
-  loginPassword: z.string().min(1),
+  loginPassword: z.string().optional(),
 });
 
 type SanitizedAcoAccount = {
@@ -31,6 +49,7 @@ type SanitizedAcoAccount = {
   retailer: string;
   email: string;
   emailProvider: string | null;
+  onlyOneCheckout: boolean;
   loginEmail: string | null;
   shippingName: string | null;
   shippingPhone: string | null;
@@ -38,11 +57,23 @@ type SanitizedAcoAccount = {
   shippingCity: string | null;
   shippingState: string | null;
   shippingZip: string | null;
+  billingSameAsShipping: boolean;
+  billingName: string | null;
+  billingPhone: string | null;
+  billingAddr: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingZip: string | null;
   status: string;
   imapHost: string;
   imapPort: number;
   imapSecurity: string;
   lastSyncAt: Date | null;
+  retailerLogins: {
+    id: string;
+    retailer: string;
+    loginEmail: string;
+  }[];
 };
 
 function sanitizeAcoAccount(account: {
@@ -52,6 +83,7 @@ function sanitizeAcoAccount(account: {
   retailer: string;
   email: string;
   emailProvider: string | null;
+  onlyOneCheckout: boolean;
   loginEmail: string | null;
   shippingName: string | null;
   shippingPhone: string | null;
@@ -59,11 +91,23 @@ function sanitizeAcoAccount(account: {
   shippingCity: string | null;
   shippingState: string | null;
   shippingZip: string | null;
+  billingSameAsShipping: boolean;
+  billingName: string | null;
+  billingPhone: string | null;
+  billingAddr: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingZip: string | null;
   status: string;
   imapHost: string;
   imapPort: number;
   imapSecurity: string;
   lastSyncAt: Date | null;
+  retailerLogins: {
+    id: string;
+    retailer: string;
+    loginEmail: string;
+  }[];
 }): SanitizedAcoAccount {
   return {
     id: account.id,
@@ -72,6 +116,7 @@ function sanitizeAcoAccount(account: {
     retailer: account.retailer,
     email: account.email,
     emailProvider: account.emailProvider,
+    onlyOneCheckout: account.onlyOneCheckout,
     loginEmail: account.loginEmail,
     shippingName: account.shippingName,
     shippingPhone: account.shippingPhone,
@@ -79,11 +124,19 @@ function sanitizeAcoAccount(account: {
     shippingCity: account.shippingCity,
     shippingState: account.shippingState,
     shippingZip: account.shippingZip,
+    billingSameAsShipping: account.billingSameAsShipping,
+    billingName: account.billingName,
+    billingPhone: account.billingPhone,
+    billingAddr: account.billingAddr,
+    billingCity: account.billingCity,
+    billingState: account.billingState,
+    billingZip: account.billingZip,
     status: account.status,
     imapHost: account.imapHost,
     imapPort: account.imapPort,
     imapSecurity: account.imapSecurity,
     lastSyncAt: account.lastSyncAt,
+    retailerLogins: account.retailerLogins,
   };
 }
 
@@ -102,6 +155,7 @@ export async function GET() {
       retailer: true,
       email: true,
       emailProvider: true,
+      onlyOneCheckout: true,
       loginEmail: true,
       shippingName: true,
       shippingPhone: true,
@@ -109,11 +163,26 @@ export async function GET() {
       shippingCity: true,
       shippingState: true,
       shippingZip: true,
+      billingSameAsShipping: true,
+      billingName: true,
+      billingPhone: true,
+      billingAddr: true,
+      billingCity: true,
+      billingState: true,
+      billingZip: true,
       status: true,
       imapHost: true,
       imapPort: true,
       imapSecurity: true,
       lastSyncAt: true,
+      retailerLogins: {
+        select: {
+          id: true,
+          retailer: true,
+          loginEmail: true,
+        },
+        orderBy: { retailer: "asc" },
+      },
     },
     orderBy: { label: "asc" },
   });
@@ -140,29 +209,64 @@ export async function POST(request: Request) {
   }
 
   const encryptedImapPassword = encryptImapPassword(parsed.data.password);
-  const encryptedRetailLoginPassword = encryptImapPassword(parsed.data.loginPassword);
+  const payloadRetailerLogins =
+    parsed.data.retailerLogins && parsed.data.retailerLogins.length > 0
+      ? parsed.data.retailerLogins
+      : [
+          {
+            retailer: parsed.data.retailer,
+            loginEmail: parsed.data.loginEmail,
+            loginPassword: parsed.data.loginPassword,
+          },
+        ];
+
+  const encryptedRetailerLogins = payloadRetailerLogins.map((entry) => {
+    const hasPassword = Boolean(entry.loginPassword && entry.loginPassword.trim().length > 0);
+    const encrypted = hasPassword ? encryptImapPassword(entry.loginPassword as string) : null;
+
+    return {
+      retailer: entry.retailer,
+      loginEmail: entry.loginEmail,
+      encryptedLoginPassword: encrypted?.encryptedPassword ?? null,
+      loginPasswordIv: encrypted?.encryptionIv ?? null,
+    };
+  });
+
+  const primaryRetailerLogin = encryptedRetailerLogins[0];
+  const billingSameAsShipping = parsed.data.billingSameAsShipping ?? true;
 
   const account = await prisma.acoAccount.create({
     data: {
       userId: authContext.userId,
       label: parsed.data.label,
-      retailer: parsed.data.retailer,
       email: parsed.data.email,
       emailProvider: parsed.data.emailProvider ?? null,
-      loginEmail: parsed.data.loginEmail,
+      onlyOneCheckout: parsed.data.onlyOneCheckout ?? true,
+      retailer: primaryRetailerLogin.retailer,
+      loginEmail: primaryRetailerLogin.loginEmail,
       shippingName: parsed.data.shippingName ?? null,
       shippingPhone: parsed.data.shippingPhone ?? null,
       shippingAddr: parsed.data.shippingAddr ?? null,
       shippingCity: parsed.data.shippingCity ?? null,
       shippingState: parsed.data.shippingState ?? null,
       shippingZip: parsed.data.shippingZip ?? null,
+      billingSameAsShipping,
+      billingName: billingSameAsShipping ? null : (parsed.data.billingName ?? null),
+      billingPhone: billingSameAsShipping ? null : (parsed.data.billingPhone ?? null),
+      billingAddr: billingSameAsShipping ? null : (parsed.data.billingAddr ?? null),
+      billingCity: billingSameAsShipping ? null : (parsed.data.billingCity ?? null),
+      billingState: billingSameAsShipping ? null : (parsed.data.billingState ?? null),
+      billingZip: billingSameAsShipping ? null : (parsed.data.billingZip ?? null),
       imapHost: parsed.data.imapHost,
       imapPort: parsed.data.imapPort,
       imapSecurity: parsed.data.imapSecurity,
       encryptedPassword: encryptedImapPassword.encryptedPassword,
       encryptionIv: encryptedImapPassword.encryptionIv,
-      encryptedLoginPassword: encryptedRetailLoginPassword.encryptedPassword,
-      loginPasswordIv: encryptedRetailLoginPassword.encryptionIv,
+      encryptedLoginPassword: primaryRetailerLogin.encryptedLoginPassword,
+      loginPasswordIv: primaryRetailerLogin.loginPasswordIv,
+      retailerLogins: {
+        create: encryptedRetailerLogins,
+      },
     },
     select: {
       id: true,
@@ -171,6 +275,7 @@ export async function POST(request: Request) {
       retailer: true,
       email: true,
       emailProvider: true,
+      onlyOneCheckout: true,
       loginEmail: true,
       shippingName: true,
       shippingPhone: true,
@@ -178,13 +283,30 @@ export async function POST(request: Request) {
       shippingCity: true,
       shippingState: true,
       shippingZip: true,
+      billingSameAsShipping: true,
+      billingName: true,
+      billingPhone: true,
+      billingAddr: true,
+      billingCity: true,
+      billingState: true,
+      billingZip: true,
       status: true,
       imapHost: true,
       imapPort: true,
       imapSecurity: true,
       lastSyncAt: true,
+      retailerLogins: {
+        select: {
+          id: true,
+          retailer: true,
+          loginEmail: true,
+        },
+        orderBy: { retailer: "asc" },
+      },
     },
   });
+
+  let syncWarning: string | null = null;
 
   try {
     await upsertGoogleSheetShippingFields({
@@ -192,23 +314,27 @@ export async function POST(request: Request) {
       label: account.label,
       email: account.email,
       loginEmail: account.loginEmail,
+      onlyOneCheckout: account.onlyOneCheckout,
       shippingName: account.shippingName,
       shippingPhone: account.shippingPhone,
       shippingAddr: account.shippingAddr,
       shippingCity: account.shippingCity,
       shippingState: account.shippingState,
       shippingZip: account.shippingZip,
+      billingSameAsShipping: account.billingSameAsShipping,
+      billingName: account.billingName,
+      billingPhone: account.billingPhone,
+      billingAddr: account.billingAddr,
+      billingCity: account.billingCity,
+      billingState: account.billingState,
+      billingZip: account.billingZip,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Unknown Google Sheets error";
-    return NextResponse.json(
-      {
-        error: "Account created but failed to sync shipping info to Google Sheets",
-        detail: message,
-      },
-      { status: 502 },
-    );
+    syncWarning =
+      error instanceof Error
+        ? `Account created, but Google Sheets sync failed: ${error.message}`
+        : "Account created, but Google Sheets sync failed.";
   }
 
-  return NextResponse.json({ data: sanitizeAcoAccount(account) }, { status: 201 });
+  return NextResponse.json({ data: sanitizeAcoAccount(account), warning: syncWarning }, { status: 201 });
 }

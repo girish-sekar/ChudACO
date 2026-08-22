@@ -220,22 +220,48 @@ type ShippingSyncInput = {
   label: string;
   email: string;
   loginEmail: string | null;
+  onlyOneCheckout: boolean;
   shippingName: string | null;
   shippingPhone: string | null;
   shippingAddr: string | null;
   shippingCity: string | null;
   shippingState: string | null;
   shippingZip: string | null;
+  billingSameAsShipping: boolean;
+  billingName: string | null;
+  billingPhone: string | null;
+  billingAddr: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingZip: string | null;
 };
 
 export async function upsertGoogleSheetShippingFields(input: ShippingSyncInput) {
   await upsertGoogleSheetAccountRowMerged(input.accountId, (currentRow) => {
     const baseRow = ensureRowWidth(Array.isArray(currentRow) ? currentRow : []);
+    const billingName = input.billingSameAsShipping
+      ? input.shippingName ?? ""
+      : input.billingName ?? "";
+    const billingPhone = input.billingSameAsShipping
+      ? input.shippingPhone ?? ""
+      : input.billingPhone ?? "";
+    const billingAddr = input.billingSameAsShipping
+      ? input.shippingAddr ?? ""
+      : input.billingAddr ?? "";
+    const billingCity = input.billingSameAsShipping
+      ? input.shippingCity ?? ""
+      : input.billingCity ?? "";
+    const billingState = input.billingSameAsShipping
+      ? input.shippingState ?? ""
+      : input.billingState ?? "";
+    const billingZip = input.billingSameAsShipping
+      ? input.shippingZip ?? ""
+      : input.billingZip ?? "";
 
     baseRow[0] = input.loginEmail ?? input.email;
     baseRow[1] = input.label;
-    baseRow[2] = baseRow[2] || "TRUE";
-    baseRow[9] = "TRUE";
+    baseRow[2] = input.onlyOneCheckout ? "TRUE" : "FALSE";
+    baseRow[9] = input.billingSameAsShipping ? "TRUE" : "FALSE";
     baseRow[10] = input.shippingName ?? "";
     baseRow[11] = input.shippingPhone ?? "";
     baseRow[12] = input.shippingAddr ?? "";
@@ -243,11 +269,12 @@ export async function upsertGoogleSheetShippingFields(input: ShippingSyncInput) 
     baseRow[16] = input.shippingCity ?? "";
     baseRow[17] = input.shippingState ?? "";
     baseRow[18] = "US";
-    baseRow[20] = input.shippingPhone ?? "";
-    baseRow[21] = input.shippingAddr ?? "";
-    baseRow[24] = input.shippingZip ?? "";
-    baseRow[25] = input.shippingCity ?? "";
-    baseRow[26] = input.shippingState ?? "";
+    baseRow[19] = billingName;
+    baseRow[20] = billingPhone;
+    baseRow[21] = billingAddr;
+    baseRow[24] = billingZip;
+    baseRow[25] = billingCity;
+    baseRow[26] = billingState;
     baseRow[27] = "US";
     baseRow[28] = JSON.stringify({ acoAccountId: input.accountId });
 

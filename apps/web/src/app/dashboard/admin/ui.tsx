@@ -20,6 +20,14 @@ type PendingBillingResponse = {
   data: AdminBillingPendingEntry[];
 };
 
+type RetailerOptionsResponse = {
+  data: Array<{
+    retailer?: string;
+    acoRetailer?: string;
+    acoRetailerLogins?: string[];
+  }>;
+};
+
 function toDateInputValue(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -40,6 +48,9 @@ export default function AdminDashboard() {
   const [retailer, setRetailer] = useState("");
   const [status, setStatus] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [selectedRetailers, setSelectedRetailers] = useState<string[]>([]);
+  const [isExportingTxt, setIsExportingTxt] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const checkoutsUrl = useMemo(() => {
     const params = new URLSearchParams();
@@ -71,6 +82,26 @@ export default function AdminDashboard() {
     mutate: mutatePending,
   } = useSWR<PendingBillingResponse>("/api/admin/billing/pending", fetchJson);
 
+  const { data: retailerOptionsData } = useSWR<RetailerOptionsResponse>(
+    "/api/admin/export?format=json",
+    fetchJson,
+  );
+
+  const retailerOptions = useMemo(() => {
+    const rows = retailerOptionsData?.data ?? [];
+    return Array.from(
+      new Set(
+        rows
+          .flatMap((row) => {
+            const primary = (row.retailer ?? row.acoRetailer ?? "").trim();
+            const additional = (row.acoRetailerLogins ?? []).map((value) => value.trim());
+            return [primary, ...additional];
+          })
+          .filter((value) => value.length > 0),
+      ),
+    );
+  }, [retailerOptionsData]);
+
   async function confirmBillingEntry(id: string) {
     setConfirmingId(id);
 
@@ -101,6 +132,54 @@ export default function AdminDashboard() {
     URL.revokeObjectURL(url);
   }
 
+  function toggleRetailerSelection(retailerValue: string) {
+    setSelectedRetailers((current) =>
+      current.includes(retailerValue)
+        ? current.filter((value) => value !== retailerValue)
+        : [...current, retailerValue],
+    );
+  }
+
+  async function exportAccountsTxt() {
+    setIsExportingTxt(true);
+    setExportError(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (selectedRetailers.length > 0) {
+        params.set("retailers", selectedRetailers.join(","));
+      }
+
+      const response = await fetch(
+        `/api/admin/export/accounts-txt${params.toString() ? `?${params.toString()}` : ""}`,
+        { credentials: "include" },
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string; detail?: string }
+          | null;
+        const message = payload?.detail
+          ? `${payload?.error ?? "Export failed"}: ${payload.detail}`
+          : payload?.error ?? "Export failed";
+        setExportError(message);
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "admin-account-export.txt";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsExportingTxt(false);
+    }
+  }
+
   const summary = checkoutsData?.summary;
 
   return (
@@ -110,14 +189,57 @@ export default function AdminDashboard() {
           <h1 className="font-heading text-3xl font-bold">Admin</h1>
           <p className="mt-1 text-sm text-[#9C9AAE]">Cross-user checkout, billing, and export controls.</p>
         </div>
-        <button
-          type="button"
-          onClick={exportCsv}
-          className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
-        >
-          Export data (CSV)
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={exportCsv}
+            className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
+          >
+            Export data (CSV)
+          </button>
+          <button
+            type="button"
+            onClick={exportAccountsTxt}
+            disabled={isExportingTxt}
+            className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
+          >
+            {isExportingTxt ? "Exporting..." : "Export Accounts (.txt)"}
+          </button>
+        </div>
       </header>
+
+      <section className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
+        <p className="text-sm text-[#9C9AAE]">TXT export retailer filter</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {retailerOptions.length === 0 ? (
+            <p className="text-xs text-[#605E72]">No retailers found yet.</p>
+          ) : (
+            retailerOptions.map((retailerValue) => {
+              const isSelected = selectedRetailers.includes(retailerValue);
+              return (
+                <button
+                  key={retailerValue}
+                  type="button"
+                  onClick={() => toggleRetailerSelection(retailerValue)}
+                  className={`rounded-full border px-3 py-1 text-xs ${
+                    isSelected
+                      ? "border-[#4C79FF] bg-[#1A2759] text-[#C8D8FF]"
+                      : "border-[#2C2D3A] text-[#9C9AAE]"
+                  }`}
+                >
+                  {retailerValue}
+                </button>
+              );
+            })
+          )}
+        </div>
+        <p className="mt-2 text-xs text-[#605E72]">
+          {selectedRetailers.length === 0
+            ? "No retailer selected: export will include all retailers."
+            : `Selected retailers: ${selectedRetailers.join(", ")}`}
+        </p>
+        {exportError ? <p className="mt-2 text-xs text-[#FF5D5D]">{exportError}</p> : null}
+      </section>
 
       <section className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
         <div className="grid gap-3 md:grid-cols-4">
