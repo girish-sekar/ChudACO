@@ -2,58 +2,30 @@ import { FeeType, prisma } from "@chudaco/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-const internalCheckoutSchema = z.object({
-  discordId: z.string().trim().min(1),
-  retailer: z.string().trim().min(1),
+const workerCheckoutSchema = z.object({
+  profile: z.string().trim().min(1),
+  site: z.string().trim().min(1),
+  mode: z.string().trim().min(1),
   item: z.string().trim().min(1),
-  qtyLabel: z.string().trim().min(1),
-  price: z.coerce.number().positive(),
-  status: z.enum(["success", "failed", "pending"]),
-  trackingNumber: z.string().trim().min(1).optional(),
+  quantity: z.coerce.number().int().positive(),
+  price: z.string().trim().min(1),
+  size: z.string().trim().optional(),
+  color: z.string().trim().optional(),
+  image: z.string().trim().optional(),
 });
 
-function isRangeMatch(label: string, price: number): boolean {
-  const normalized = label.trim().toLowerCase();
-
-  if (normalized.includes("under") && normalized.includes("$15")) {
-    return price < 15;
+function parsePriceToNumber(raw: string): number | null {
+  const cleaned = raw.replace(/[$,\s]/g, "");
+  if (!cleaned) {
+    return null;
   }
 
-  if (normalized.includes("$15") && normalized.includes("$60")) {
-    return price >= 15 && price <= 60;
+  const parsed = Number(cleaned);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
   }
 
-  if (normalized.includes("$40") && normalized.includes("$70")) {
-    return price >= 40 && price <= 70;
-  }
-
-  if (normalized.includes("$100+")) {
-    return price >= 100;
-  }
-
-  if (normalized === "any") {
-    return true;
-  }
-
-  return false;
-}
-
-async function computeFee(price: number): Promise<string> {
-  const rules = await prisma.pricingRule.findMany({
-    orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-  });
-
-  const matched = rules.find((rule) => isRangeMatch(rule.priceRangeLabel, price));
-  if (!matched) {
-    return "0.00";
-  }
-
-  if (matched.feeType === FeeType.percent) {
-    const percentage = Number(matched.feePercent ?? 0);
-    return (price * (percentage / 100)).toFixed(2);
-  }
-
-  return Number(matched.feeFlat ?? 0).toFixed(2);
+  return parsed;
 }
 
 async function generateTicketCode(): Promise<string> {
@@ -74,16 +46,48 @@ async function generateTicketCode(): Promise<string> {
   throw new Error("Failed to generate unique ticket code");
 }
 
-export async function POST(request: Request) {
-  const internalApiKey = process.env.INTERNAL_API_KEY;
-  const providedKey = request.headers.get("x-internal-api-key")?.trim();
+function computeFeeAmountForRule(
+  feeType: FeeType,
+  feeFlat: string | number | null,
+  feePercent: string | number | null,
+  price: number,
+): string | null {
+  if (feeType === FeeType.flat) {
+    if (feeFlat === null || feeFlat === undefined) {
+      return null;
+    }
 
-  if (!internalApiKey || !providedKey || providedKey !== internalApiKey) {
+    return Number(feeFlat).toFixed(2);
+  }
+
+  if (feePercent === null || feePercent === undefined) {
+    return null;
+  }
+
+  return (price * (Number(feePercent) / 100)).toFixed(2);
+}
+
+export async function POST(request: Request) {
+  const internalApiKey = process.env.INTERNAL_API_KEY?.trim();
+  const workerIngestSecret = process.env.WORKER_INGEST_SECRET?.trim();
+  const providedInternalApiKey = request.headers.get("x-internal-api-key")?.trim();
+  const providedWorkerIngestSecret = request.headers.get("x-worker-ingest-secret")?.trim();
+
+  const internalAuthorized =
+    Boolean(internalApiKey) &&
+    Boolean(providedInternalApiKey) &&
+    providedInternalApiKey === internalApiKey;
+  const workerAuthorized =
+    Boolean(workerIngestSecret) &&
+    Boolean(providedWorkerIngestSecret) &&
+    providedWorkerIngestSecret === workerIngestSecret;
+
+  if (!internalAuthorized && !workerAuthorized) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const payload = await request.json().catch(() => null);
-  const parsed = internalCheckoutSchema.safeParse(payload);
+  const parsed = workerCheckoutSchema.safeParse(payload);
 
   if (!parsed.success) {
     return NextResponse.json(
@@ -93,48 +97,118 @@ export async function POST(request: Request) {
   }
 
   const data = parsed.data;
+  const parsedPrice = parsePriceToNumber(data.price);
+  if (parsedPrice === null) {
+    return NextResponse.json({ error: "Invalid price format" }, { status: 400 });
+  }
 
-  const user = await prisma.user.upsert({
-    where: { discordId: data.discordId },
-    update: {},
-    create: {
-      discordId: data.discordId,
-      username: `discord-${data.discordId}`,
-      avatarUrl: null,
+  const normalizedPrice = parsedPrice.toFixed(2);
+
+  const account = await prisma.acoAccount.findUnique({
+    where: { botProfileName: data.profile },
+    select: {
+      id: true,
+      userId: true,
+      retailer: true,
     },
   });
 
-  const ticketCode = await generateTicketCode();
+  if (!account) {
+    console.error("Worker checkout profile did not match any ACO account", {
+      profile: data.profile,
+      site: data.site,
+      mode: data.mode,
+    });
+    return NextResponse.json(
+      { error: "No ACO account found for profile name", profile: data.profile },
+      { status: 422 },
+    );
+  }
 
-  const createdCheckout = await prisma.checkout.create({
-    data: {
-      userId: user.id,
-      retailer: data.retailer,
+  const dedupeWindowStart = new Date(Date.now() - 5 * 60 * 1000);
+  const existing = await prisma.checkout.findFirst({
+    where: {
+      acoAccountId: account.id,
       item: data.item,
-      qtyLabel: data.qtyLabel,
-      price: data.price.toFixed(2),
-      status: data.status,
-      trackingNumber: data.trackingNumber ?? null,
-      ticketCode,
+      price: normalizedPrice,
+      occurredAt: { gte: dedupeWindowStart },
     },
+    orderBy: { occurredAt: "desc" },
   });
 
-  if (data.status === "success") {
-    const feeAmount = await computeFee(data.price);
-
-    await prisma.billingEntry.create({
+  // This dedupe heuristic can suppress a true repeat purchase within 5 minutes,
+  // but that is safer than double-billing on webhook retries.
+  if (existing) {
+    return NextResponse.json({
       data: {
-        userId: user.id,
-        checkoutId: createdCheckout.id,
-        feeAmount,
+        ...existing,
+        price: existing.price.toString(),
       },
+      deduplicated: true,
     });
   }
 
+  const pricingRules = await prisma.pricingRule.findMany({
+    orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+  });
+
+  const matchedRule = pricingRules.find((rule) => {
+    const min = rule.minPrice !== null ? Number(rule.minPrice) : 0;
+    const max = rule.maxPrice !== null ? Number(rule.maxPrice) : null;
+
+    // Seed ranges currently overlap (40-60). We intentionally use first sortOrder match.
+    return parsedPrice >= min && (max === null || parsedPrice <= max);
+  });
+
+  const feeAmount = matchedRule
+    ? computeFeeAmountForRule(
+        matchedRule.feeType,
+        matchedRule.feeFlat?.toString() ?? null,
+        matchedRule.feePercent?.toString() ?? null,
+        parsedPrice,
+      )
+    : null;
+
+  const ticketCode = await generateTicketCode();
+
+  const created = await prisma.$transaction(async (tx) => {
+    const checkout = await tx.checkout.create({
+      data: {
+        userId: account.userId,
+        acoAccountId: account.id,
+        retailer: account.retailer,
+        item: data.item,
+        qtyLabel: `Qty ${data.quantity}`,
+        price: normalizedPrice,
+        status: "success",
+        ticketCode,
+      },
+    });
+
+    if (matchedRule && feeAmount) {
+      await tx.billingEntry.create({
+        data: {
+          userId: account.userId,
+          checkoutId: checkout.id,
+          feeAmount,
+        },
+      });
+    } else {
+      console.error("Checkout created without billing rule match", {
+        checkoutId: checkout.id,
+        acoAccountId: account.id,
+        item: data.item,
+        price: normalizedPrice,
+      });
+    }
+
+    return checkout;
+  });
+
   return NextResponse.json({
     data: {
-      ...createdCheckout,
-      price: createdCheckout.price.toString(),
+      ...created,
+      price: created.price.toString(),
     },
   });
 }

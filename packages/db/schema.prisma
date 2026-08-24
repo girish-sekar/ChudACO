@@ -12,6 +12,7 @@ model User {
   discordId           String         @unique
   username            String
   avatarUrl           String?
+  nextAcoAccountNumber Int           @default(1)
   notifyOnSuccess     Boolean        @default(true)
   notifyOnFailure     Boolean        @default(true)
   notifyWeeklySummary Boolean        @default(false)
@@ -67,6 +68,8 @@ model PricingRule {
   id              String   @id @default(cuid())
   category        String
   priceRangeLabel String
+  minPrice        Decimal? @db.Decimal(10, 2)
+  maxPrice        Decimal? @db.Decimal(10, 2)
   feeType         FeeType
   feeFlat         Decimal? @db.Decimal(10, 2)
   feePercent      Decimal? @db.Decimal(5, 2)
@@ -82,6 +85,8 @@ model AcoAccount {
   id                String    @id @default(cuid())
   userId            String
   user              User      @relation(fields: [userId], references: [id])
+  accountNumber     Int
+  botProfileName    String    @unique
   label             String
   retailer          String
   email             String
@@ -113,6 +118,8 @@ model AcoAccount {
   checkouts         Checkout[]
   cardOnFile        CardOnFile?
   retailerLogins    AcoRetailerLogin[]
+
+  @@unique([userId, accountNumber])
 }
 
 model AcoRetailerLogin {

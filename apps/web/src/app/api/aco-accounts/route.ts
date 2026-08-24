@@ -45,6 +45,8 @@ const createAcoAccountSchema = z.object({
 type SanitizedAcoAccount = {
   id: string;
   userId: string;
+  accountNumber: number;
+  botProfileName: string;
   label: string;
   retailer: string;
   email: string;
@@ -79,6 +81,8 @@ type SanitizedAcoAccount = {
 function sanitizeAcoAccount(account: {
   id: string;
   userId: string;
+  accountNumber: number;
+  botProfileName: string;
   label: string;
   retailer: string;
   email: string;
@@ -112,6 +116,8 @@ function sanitizeAcoAccount(account: {
   return {
     id: account.id,
     userId: account.userId,
+    accountNumber: account.accountNumber,
+    botProfileName: account.botProfileName,
     label: account.label,
     retailer: account.retailer,
     email: account.email,
@@ -151,6 +157,8 @@ export async function GET() {
     select: {
       id: true,
       userId: true,
+      accountNumber: true,
+      botProfileName: true,
       label: true,
       retailer: true,
       email: true,
@@ -235,75 +243,95 @@ export async function POST(request: Request) {
   const primaryRetailerLogin = encryptedRetailerLogins[0];
   const billingSameAsShipping = parsed.data.billingSameAsShipping ?? true;
 
-  const account = await prisma.acoAccount.create({
-    data: {
-      userId: authContext.userId,
-      label: parsed.data.label,
-      email: parsed.data.email,
-      emailProvider: parsed.data.emailProvider ?? null,
-      onlyOneCheckout: parsed.data.onlyOneCheckout ?? true,
-      retailer: primaryRetailerLogin.retailer,
-      loginEmail: primaryRetailerLogin.loginEmail,
-      shippingName: parsed.data.shippingName ?? null,
-      shippingPhone: parsed.data.shippingPhone ?? null,
-      shippingAddr: parsed.data.shippingAddr ?? null,
-      shippingCity: parsed.data.shippingCity ?? null,
-      shippingState: parsed.data.shippingState ?? null,
-      shippingZip: parsed.data.shippingZip ?? null,
-      billingSameAsShipping,
-      billingName: billingSameAsShipping ? null : (parsed.data.billingName ?? null),
-      billingPhone: billingSameAsShipping ? null : (parsed.data.billingPhone ?? null),
-      billingAddr: billingSameAsShipping ? null : (parsed.data.billingAddr ?? null),
-      billingCity: billingSameAsShipping ? null : (parsed.data.billingCity ?? null),
-      billingState: billingSameAsShipping ? null : (parsed.data.billingState ?? null),
-      billingZip: billingSameAsShipping ? null : (parsed.data.billingZip ?? null),
-      imapHost: parsed.data.imapHost,
-      imapPort: parsed.data.imapPort,
-      imapSecurity: parsed.data.imapSecurity,
-      encryptedPassword: encryptedImapPassword.encryptedPassword,
-      encryptionIv: encryptedImapPassword.encryptionIv,
-      encryptedLoginPassword: primaryRetailerLogin.encryptedLoginPassword,
-      loginPasswordIv: primaryRetailerLogin.loginPasswordIv,
-      retailerLogins: {
-        create: encryptedRetailerLogins,
+  const account = await prisma.$transaction(async (tx) => {
+    const userAfterIncrement = await tx.user.update({
+      where: { id: authContext.userId },
+      data: {
+        nextAcoAccountNumber: { increment: 1 },
       },
-    },
-    select: {
-      id: true,
-      userId: true,
-      label: true,
-      retailer: true,
-      email: true,
-      emailProvider: true,
-      onlyOneCheckout: true,
-      loginEmail: true,
-      shippingName: true,
-      shippingPhone: true,
-      shippingAddr: true,
-      shippingCity: true,
-      shippingState: true,
-      shippingZip: true,
-      billingSameAsShipping: true,
-      billingName: true,
-      billingPhone: true,
-      billingAddr: true,
-      billingCity: true,
-      billingState: true,
-      billingZip: true,
-      status: true,
-      imapHost: true,
-      imapPort: true,
-      imapSecurity: true,
-      lastSyncAt: true,
-      retailerLogins: {
-        select: {
-          id: true,
-          retailer: true,
-          loginEmail: true,
+      select: {
+        username: true,
+        nextAcoAccountNumber: true,
+      },
+    });
+
+    const accountNumber = userAfterIncrement.nextAcoAccountNumber - 1;
+    const botProfileName = `${userAfterIncrement.username} - ACO #${accountNumber}`;
+
+    return tx.acoAccount.create({
+      data: {
+        userId: authContext.userId,
+        accountNumber,
+        botProfileName,
+        label: parsed.data.label,
+        email: parsed.data.email,
+        emailProvider: parsed.data.emailProvider ?? null,
+        onlyOneCheckout: parsed.data.onlyOneCheckout ?? true,
+        retailer: primaryRetailerLogin.retailer,
+        loginEmail: primaryRetailerLogin.loginEmail,
+        shippingName: parsed.data.shippingName ?? null,
+        shippingPhone: parsed.data.shippingPhone ?? null,
+        shippingAddr: parsed.data.shippingAddr ?? null,
+        shippingCity: parsed.data.shippingCity ?? null,
+        shippingState: parsed.data.shippingState ?? null,
+        shippingZip: parsed.data.shippingZip ?? null,
+        billingSameAsShipping,
+        billingName: billingSameAsShipping ? null : (parsed.data.billingName ?? null),
+        billingPhone: billingSameAsShipping ? null : (parsed.data.billingPhone ?? null),
+        billingAddr: billingSameAsShipping ? null : (parsed.data.billingAddr ?? null),
+        billingCity: billingSameAsShipping ? null : (parsed.data.billingCity ?? null),
+        billingState: billingSameAsShipping ? null : (parsed.data.billingState ?? null),
+        billingZip: billingSameAsShipping ? null : (parsed.data.billingZip ?? null),
+        imapHost: parsed.data.imapHost,
+        imapPort: parsed.data.imapPort,
+        imapSecurity: parsed.data.imapSecurity,
+        encryptedPassword: encryptedImapPassword.encryptedPassword,
+        encryptionIv: encryptedImapPassword.encryptionIv,
+        encryptedLoginPassword: primaryRetailerLogin.encryptedLoginPassword,
+        loginPasswordIv: primaryRetailerLogin.loginPasswordIv,
+        retailerLogins: {
+          create: encryptedRetailerLogins,
         },
-        orderBy: { retailer: "asc" },
       },
-    },
+      select: {
+        id: true,
+        userId: true,
+        accountNumber: true,
+        botProfileName: true,
+        label: true,
+        retailer: true,
+        email: true,
+        emailProvider: true,
+        onlyOneCheckout: true,
+        loginEmail: true,
+        shippingName: true,
+        shippingPhone: true,
+        shippingAddr: true,
+        shippingCity: true,
+        shippingState: true,
+        shippingZip: true,
+        billingSameAsShipping: true,
+        billingName: true,
+        billingPhone: true,
+        billingAddr: true,
+        billingCity: true,
+        billingState: true,
+        billingZip: true,
+        status: true,
+        imapHost: true,
+        imapPort: true,
+        imapSecurity: true,
+        lastSyncAt: true,
+        retailerLogins: {
+          select: {
+            id: true,
+            retailer: true,
+            loginEmail: true,
+          },
+          orderBy: { retailer: "asc" },
+        },
+      },
+    });
   });
 
   let syncWarning: string | null = null;
@@ -311,7 +339,7 @@ export async function POST(request: Request) {
   try {
     await upsertGoogleSheetShippingFields({
       accountId: account.id,
-      label: account.label,
+      botProfileName: account.botProfileName,
       email: account.email,
       loginEmail: account.loginEmail,
       onlyOneCheckout: account.onlyOneCheckout,

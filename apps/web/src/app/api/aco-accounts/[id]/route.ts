@@ -47,6 +47,8 @@ const updateAcoAccountSchema = z.object({
 function sanitizeAcoAccount(account: {
   id: string;
   userId: string;
+  accountNumber: number;
+  botProfileName: string;
   label: string;
   retailer: string;
   email: string;
@@ -80,6 +82,8 @@ function sanitizeAcoAccount(account: {
   return {
     id: account.id,
     userId: account.userId,
+    accountNumber: account.accountNumber,
+    botProfileName: account.botProfileName,
     label: account.label,
     retailer: account.retailer,
     email: account.email,
@@ -213,9 +217,7 @@ async function handleUpdate(request: Request, context: RouteParams) {
       orderBy: { createdAt: "asc" },
     });
 
-    let mergedRetailerLogins;
-
-    mergedRetailerLogins = parsed.data.retailerLogins.map((entry, index) => {
+    const mergedRetailerLogins = parsed.data.retailerLogins.map((entry, index) => {
         const existing = existingLogins[index];
         let encryptedLoginPassword = existing?.encryptedLoginPassword;
         let loginPasswordIv = existing?.loginPasswordIv;
@@ -232,7 +234,7 @@ async function handleUpdate(request: Request, context: RouteParams) {
           encryptedLoginPassword,
           loginPasswordIv,
         };
-      });
+    });
 
     const primary = mergedRetailerLogins[0];
     nextData.retailer = primary.retailer;
@@ -258,6 +260,8 @@ async function handleUpdate(request: Request, context: RouteParams) {
         select: {
           id: true,
           userId: true,
+          accountNumber: true,
+          botProfileName: true,
           label: true,
           retailer: true,
           email: true,
@@ -300,6 +304,8 @@ async function handleUpdate(request: Request, context: RouteParams) {
       select: {
         id: true,
         userId: true,
+        accountNumber: true,
+        botProfileName: true,
         label: true,
         retailer: true,
         email: true,
@@ -341,7 +347,7 @@ async function handleUpdate(request: Request, context: RouteParams) {
   try {
     await upsertGoogleSheetShippingFields({
       accountId: account.id,
-      label: account.label,
+      botProfileName: account.botProfileName,
       email: account.email,
       loginEmail: account.loginEmail,
       onlyOneCheckout: account.onlyOneCheckout,

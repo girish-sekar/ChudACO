@@ -15,12 +15,6 @@ async function main() {
       discordId: "123456789012345678",
       username: "demo_user",
       avatarUrl: "https://cdn.discordapp.com/embed/avatars/0.png",
-      shippingName: "Demo Shopper",
-      shippingPhone: "555-0100",
-      shippingAddr: "123 Checkout Lane",
-      shippingCity: "Phoenix",
-      shippingState: "AZ",
-      shippingZip: "85001",
       notifyOnSuccess: true,
       notifyOnFailure: true,
       notifyWeeklySummary: false,
@@ -55,6 +49,8 @@ async function main() {
       {
         category: "Single packs/blisters",
         priceRangeLabel: "Under $15",
+        minPrice: "0.00",
+        maxPrice: "15.00",
         feeType: FeeType.flat,
         feeFlat: "3.00",
         feePercent: null,
@@ -63,6 +59,8 @@ async function main() {
       {
         category: "Booster Bundles",
         priceRangeLabel: "$15–$60",
+        minPrice: "15.00",
+        maxPrice: "60.00",
         feeType: FeeType.flat,
         feeFlat: "9.00",
         feePercent: null,
@@ -71,6 +69,8 @@ async function main() {
       {
         category: "Elite Trainer Boxes",
         priceRangeLabel: "$40–$70",
+        minPrice: "40.00",
+        maxPrice: "70.00",
         feeType: FeeType.flat,
         feeFlat: "8.00",
         feePercent: null,
@@ -79,6 +79,8 @@ async function main() {
       {
         category: "Booster Boxes/Cases",
         priceRangeLabel: "$100+",
+        minPrice: "100.00",
+        maxPrice: null,
         feeType: FeeType.percent,
         feeFlat: null,
         feePercent: "12.00",
@@ -87,6 +89,8 @@ async function main() {
       {
         category: "Special collections & tins",
         priceRangeLabel: "Any",
+        minPrice: "0.00",
+        maxPrice: null,
         feeType: FeeType.flat,
         feeFlat: "6.00",
         feePercent: null,

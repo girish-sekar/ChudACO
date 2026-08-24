@@ -17,6 +17,8 @@ type ExportRow = {
   notifyWeeklySummary: boolean;
   userCreatedAt: Date;
   acoAccountId: string;
+  acoAccountNumber: number;
+  acoBotProfileName: string;
   acoLabel: string;
   acoRetailer: string;
   acoRetailerLogins: string[];
@@ -58,6 +60,8 @@ function toCsv(rows: ExportRow[]): string {
     "notifyWeeklySummary",
     "userCreatedAt",
     "acoAccountId",
+    "acoAccountNumber",
+    "acoBotProfileName",
     "acoLabel",
     "acoRetailer",
     "acoEmail",
@@ -91,6 +95,8 @@ function toCsv(rows: ExportRow[]): string {
       String(row.notifyWeeklySummary),
       row.userCreatedAt.toISOString(),
       row.acoAccountId,
+      String(row.acoAccountNumber),
+      row.acoBotProfileName,
       row.acoLabel,
       row.acoRetailer,
       row.acoEmail,
@@ -173,6 +179,8 @@ export async function GET(request: NextRequest) {
       notifyWeeklySummary: user.notifyWeeklySummary,
       userCreatedAt: user.createdAt,
       acoAccountId: account.id,
+      acoAccountNumber: account.accountNumber,
+      acoBotProfileName: account.botProfileName,
       acoLabel: account.label,
       acoRetailer: account.retailer,
       acoRetailerLogins: Array.from(

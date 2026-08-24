@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import useSWR from "swr";
 import {
   fetchJson,
@@ -9,6 +9,7 @@ import {
   type AdminBillingPendingEntry,
   type AdminCheckoutRow,
   type AdminCheckoutSummary,
+  type PricingRule,
 } from "@/lib/dashboard";
 
 type CheckoutsResponse = {
@@ -26,6 +27,32 @@ type RetailerOptionsResponse = {
     acoRetailer?: string;
     acoRetailerLogins?: string[];
   }>;
+};
+
+type PricingRulesResponse = {
+  data: PricingRule[];
+};
+
+type PricingRuleFormState = {
+  category: string;
+  priceRangeLabel: string;
+  feeType: "flat" | "percent";
+  feeFlat: string;
+  feePercent: string;
+  minPrice: string;
+  maxPrice: string;
+  sortOrder: string;
+};
+
+const defaultPricingRuleForm: PricingRuleFormState = {
+  category: "",
+  priceRangeLabel: "",
+  feeType: "flat",
+  feeFlat: "",
+  feePercent: "",
+  minPrice: "",
+  maxPrice: "",
+  sortOrder: "0",
 };
 
 function toDateInputValue(date: Date): string {
@@ -51,6 +78,12 @@ export default function AdminDashboard() {
   const [selectedRetailers, setSelectedRetailers] = useState<string[]>([]);
   const [isExportingTxt, setIsExportingTxt] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [pricingForm, setPricingForm] = useState<PricingRuleFormState>(defaultPricingRuleForm);
+  const [pricingStatus, setPricingStatus] = useState<string | null>(null);
+  const [pricingError, setPricingError] = useState<string | null>(null);
+  const [editingPricingRuleId, setEditingPricingRuleId] = useState<string | null>(null);
+  const [savingPricingRule, setSavingPricingRule] = useState(false);
+  const [deletingPricingRuleId, setDeletingPricingRuleId] = useState<string | null>(null);
 
   const checkoutsUrl = useMemo(() => {
     const params = new URLSearchParams();
@@ -86,6 +119,12 @@ export default function AdminDashboard() {
     "/api/admin/export?format=json",
     fetchJson,
   );
+
+  const {
+    data: pricingRulesData,
+    error: pricingRulesError,
+    mutate: mutatePricingRules,
+  } = useSWR<PricingRulesResponse>("/api/admin/pricing-rules", fetchJson);
 
   const retailerOptions = useMemo(() => {
     const rows = retailerOptionsData?.data ?? [];
@@ -177,6 +216,103 @@ export default function AdminDashboard() {
       URL.revokeObjectURL(url);
     } finally {
       setIsExportingTxt(false);
+    }
+  }
+
+  function startEditPricingRule(rule: PricingRule) {
+    setEditingPricingRuleId(rule.id);
+    setPricingError(null);
+    setPricingStatus(null);
+    setPricingForm({
+      category: rule.category,
+      priceRangeLabel: rule.priceRangeLabel,
+      feeType: rule.feeType,
+      feeFlat: rule.feeFlat ?? "",
+      feePercent: rule.feePercent ?? "",
+      minPrice: rule.minPrice ?? "",
+      maxPrice: rule.maxPrice ?? "",
+      sortOrder: String(rule.sortOrder),
+    });
+  }
+
+  function resetPricingForm() {
+    setEditingPricingRuleId(null);
+    setPricingForm(defaultPricingRuleForm);
+  }
+
+  async function submitPricingRule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingPricingRule(true);
+    setPricingStatus(null);
+    setPricingError(null);
+
+    const payload = {
+      category: pricingForm.category,
+      priceRangeLabel: pricingForm.priceRangeLabel,
+      feeType: pricingForm.feeType,
+      feeFlat: pricingForm.feeFlat || null,
+      feePercent: pricingForm.feePercent || null,
+      minPrice: pricingForm.minPrice || null,
+      maxPrice: pricingForm.maxPrice || null,
+      sortOrder: Number(pricingForm.sortOrder),
+    };
+
+    const response = await fetch(
+      editingPricingRuleId
+        ? `/api/admin/pricing-rules/${editingPricingRuleId}`
+        : "/api/admin/pricing-rules",
+      {
+        method: editingPricingRuleId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+
+    const body = (await response.json().catch(() => null)) as
+      | { error?: string; details?: unknown }
+      | null;
+
+    if (!response.ok) {
+      setPricingError(
+        body?.error ??
+          (editingPricingRuleId ? "Failed to update pricing rule." : "Failed to create pricing rule."),
+      );
+      setSavingPricingRule(false);
+      return;
+    }
+
+    setPricingStatus(editingPricingRuleId ? "Pricing rule updated." : "Pricing rule created.");
+    resetPricingForm();
+    await mutatePricingRules();
+    setSavingPricingRule(false);
+  }
+
+  async function deletePricingRule(id: string) {
+    const confirmed = window.confirm("Delete this pricing rule?");
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingPricingRuleId(id);
+    setPricingError(null);
+    setPricingStatus(null);
+
+    try {
+      const response = await fetch(`/api/admin/pricing-rules/${id}`, { method: "DELETE" });
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+
+      if (!response.ok) {
+        setPricingError(body?.error ?? "Failed to delete pricing rule.");
+        return;
+      }
+
+      setPricingStatus("Pricing rule deleted.");
+      if (editingPricingRuleId === id) {
+        resetPricingForm();
+      }
+      await mutatePricingRules();
+    } finally {
+      setDeletingPricingRuleId(null);
     }
   }
 
@@ -342,6 +478,170 @@ export default function AdminDashboard() {
         {pendingData && pendingData.data.length === 0 ? (
           <p className="text-sm text-[#605E72]">No pending confirmations.</p>
         ) : null}
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="font-heading text-2xl font-semibold">Pricing rules</h2>
+        {pricingRulesError ? <p className="text-sm text-[#FF5D5D]">Failed to load pricing rules.</p> : null}
+
+        <form
+          onSubmit={(event) => void submitPricingRule(event)}
+          className="grid gap-2 rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4 md:grid-cols-4"
+        >
+          <input
+            value={pricingForm.category}
+            onChange={(event) =>
+              setPricingForm((current) => ({ ...current, category: event.target.value }))
+            }
+            placeholder="Category"
+            required
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={pricingForm.priceRangeLabel}
+            onChange={(event) =>
+              setPricingForm((current) => ({ ...current, priceRangeLabel: event.target.value }))
+            }
+            placeholder="Price range label"
+            required
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <select
+            value={pricingForm.feeType}
+            onChange={(event) =>
+              setPricingForm((current) => ({
+                ...current,
+                feeType: event.target.value as "flat" | "percent",
+              }))
+            }
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          >
+            <option value="flat">Flat</option>
+            <option value="percent">Percent</option>
+          </select>
+          <input
+            value={pricingForm.sortOrder}
+            onChange={(event) =>
+              setPricingForm((current) => ({ ...current, sortOrder: event.target.value }))
+            }
+            placeholder="Sort order"
+            required
+            type="number"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={pricingForm.feeFlat}
+            onChange={(event) =>
+              setPricingForm((current) => ({ ...current, feeFlat: event.target.value }))
+            }
+            placeholder="Fee flat"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={pricingForm.feePercent}
+            onChange={(event) =>
+              setPricingForm((current) => ({ ...current, feePercent: event.target.value }))
+            }
+            placeholder="Fee percent"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={pricingForm.minPrice}
+            onChange={(event) =>
+              setPricingForm((current) => ({ ...current, minPrice: event.target.value }))
+            }
+            placeholder="Min price"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={pricingForm.maxPrice}
+            onChange={(event) =>
+              setPricingForm((current) => ({ ...current, maxPrice: event.target.value }))
+            }
+            placeholder="Max price (blank for no cap)"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <div className="md:col-span-4 flex flex-wrap gap-2">
+            <button
+              type="submit"
+              disabled={savingPricingRule}
+              className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
+            >
+              {savingPricingRule
+                ? "Saving..."
+                : editingPricingRuleId
+                  ? "Update pricing rule"
+                  : "Add pricing rule"}
+            </button>
+            {editingPricingRuleId ? (
+              <button
+                type="button"
+                onClick={resetPricingForm}
+                className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE]"
+              >
+                Cancel edit
+              </button>
+            ) : null}
+          </div>
+          {pricingStatus ? <p className="text-xs text-[#4ADE80] md:col-span-4">{pricingStatus}</p> : null}
+          {pricingError ? <p className="text-xs text-[#FF5D5D] md:col-span-4">{pricingError}</p> : null}
+        </form>
+
+        <div className="rounded-xl border border-[#2C2D3A] bg-[#18181F] overflow-hidden">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-[#2C2D3A] text-[#9C9AAE]">
+                <th className="px-3 py-2 font-medium">Category</th>
+                <th className="px-3 py-2 font-medium">Range label</th>
+                <th className="px-3 py-2 font-medium">Bounds</th>
+                <th className="px-3 py-2 font-medium">Fee</th>
+                <th className="px-3 py-2 font-medium">Sort</th>
+                <th className="px-3 py-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(pricingRulesData?.data ?? []).map((rule) => (
+                <tr key={rule.id} className="border-b border-[#2C2D3A]/70 last:border-0">
+                  <td className="px-3 py-2 text-[#F2F1F6]">{rule.category}</td>
+                  <td className="px-3 py-2 text-[#9C9AAE]">{rule.priceRangeLabel}</td>
+                  <td className="px-3 py-2 text-[#9C9AAE]">
+                    {rule.minPrice ?? "0"} - {rule.maxPrice ?? "No cap"}
+                  </td>
+                  <td className="px-3 py-2 text-[#F2F1F6]">
+                    {rule.feeType === "flat" ? toCurrency(rule.feeFlat ?? 0) : `${rule.feePercent ?? 0}%`}
+                  </td>
+                  <td className="px-3 py-2 text-[#9C9AAE]">{rule.sortOrder}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => startEditPricingRule(rule)}
+                        className="rounded-md border border-[#2C2D3A] px-2 py-1 text-xs text-[#9C9AAE] hover:text-[#F2F1F6]"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void deletePricingRule(rule.id)}
+                        disabled={deletingPricingRuleId === rule.id}
+                        className="rounded-md border border-[#5A2323] px-2 py-1 text-xs text-[#FF9A9A] hover:text-[#FFD1D1] disabled:opacity-60"
+                      >
+                        {deletingPricingRuleId === rule.id ? "Deleting..." : "Delete"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {pricingRulesData && pricingRulesData.data.length === 0 ? (
+                <tr>
+                  <td className="px-3 py-3 text-[#605E72]" colSpan={6}>
+                    No pricing rules found.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="space-y-3">

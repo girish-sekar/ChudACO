@@ -15,6 +15,8 @@ export async function GET() {
   return NextResponse.json({
     data: pricingRules.map((rule) => ({
       ...rule,
+      minPrice: rule.minPrice?.toString() ?? null,
+      maxPrice: rule.maxPrice?.toString() ?? null,
       feeFlat: rule.feeFlat?.toString() ?? null,
       feePercent: rule.feePercent?.toString() ?? null,
     })),

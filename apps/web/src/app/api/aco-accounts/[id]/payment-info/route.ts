@@ -73,6 +73,7 @@ export async function POST(request: Request, context: RouteParams) {
     select: {
       id: true,
       label: true,
+      botProfileName: true,
       email: true,
       loginEmail: true,
       onlyOneCheckout: true,
@@ -112,7 +113,7 @@ export async function POST(request: Request, context: RouteParams) {
     return NextResponse.json({ error: "Invalid card number" }, { status: 400 });
   }
 
-  const profileName = account.label;
+  const profileName = account.botProfileName;
   const emailAddress = account.loginEmail ?? account.email;
   const shippingName = account.shippingName ?? "";
   const shippingPhone = account.shippingPhone ?? "";

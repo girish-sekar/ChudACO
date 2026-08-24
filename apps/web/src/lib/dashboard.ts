@@ -31,6 +31,8 @@ export type PricingRule = {
   id: string;
   category: string;
   priceRangeLabel: string;
+  minPrice: string | null;
+  maxPrice: string | null;
   feeType: "flat" | "percent";
   feeFlat: string | null;
   feePercent: string | null;
@@ -48,6 +50,8 @@ export type PaymentMethod = {
 export type AcoAccount = {
   id: string;
   userId: string;
+  accountNumber: number;
+  botProfileName: string;
   label: string;
   retailer: string;
   email: string;
