@@ -154,9 +154,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     async signIn({ user, profile, account }) {
       const discordProfile = profile as DiscordProfile | undefined;
-      const discordId = discordProfile?.id;
+      const discordId =
+        discordProfile?.id ||
+        (account?.provider === "discord" ? account.providerAccountId : undefined);
 
       if (!discordId) {
+        console.error("discord sign-in rejected: missing discord id in profile/account");
         return false;
       }
 
