@@ -42,20 +42,28 @@ async function checkRequiredRole(discordUserId: string): Promise<boolean> {
   }
 
   const endpoint = `https://discord.com/api/v10/guilds/${guildId}/members/${discordUserId}`;
-  const response = await fetch(endpoint, {
-    headers: {
-      Authorization: `Bot ${botToken}`,
-    },
-    cache: "no-store",
-  });
 
-  if (!response.ok) {
+  let hasRequiredRole = false;
+
+  try {
+    const response = await fetch(endpoint, {
+      headers: {
+        Authorization: `Bot ${botToken}`,
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      roleCache.set(discordUserId, { hasRequiredRole: false, checkedAt: now });
+      return false;
+    }
+
+    const member = (await response.json()) as { roles?: string[] };
+    hasRequiredRole = member.roles?.includes(requiredRoleId) ?? false;
+  } catch {
     roleCache.set(discordUserId, { hasRequiredRole: false, checkedAt: now });
     return false;
   }
-
-  const member = (await response.json()) as { roles?: string[] };
-  const hasRequiredRole = member.roles?.includes(requiredRoleId) ?? false;
 
   // This should move to Redis in production to share cache across instances.
   roleCache.set(discordUserId, { hasRequiredRole, checkedAt: now });
@@ -63,6 +71,8 @@ async function checkRequiredRole(discordUserId: string): Promise<boolean> {
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
+  secret: process.env.NEXTAUTH_SECRET,
   providers: [
     Discord({
       clientId: process.env.DISCORD_CLIENT_ID ?? "",
