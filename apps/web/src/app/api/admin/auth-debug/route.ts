@@ -57,9 +57,17 @@ export async function GET(request: Request) {
   const requiredRoleId = process.env.DISCORD_REQUIRED_ROLE_ID?.trim() || null;
   const botToken = process.env.DISCORD_BOT_TOKEN?.trim() || null;
 
-  const result: DebugResult = {
+  const adminDiscordIdsRaw = process.env.ADMIN_DISCORD_IDS ?? "";
+  const adminIds = adminDiscordIdsRaw.split(",").map(s => s.trim()).filter(Boolean);
+
+  const result: Record<string, unknown> = {
     discordId,
     sessionHasRequiredRole: Boolean(session?.user?.hasRequiredRole),
+    sessionUser: session?.user ?? null,
+    isAdmin: adminIds.includes(discordId),
+    adminDiscordIds: adminIds,
+    hasAdminEnvVar: Boolean(process.env.ADMIN_DISCORD_IDS),
+    buildTimestamp: new Date().toISOString(),
     env: {
       hasGuildId: Boolean(guildId),
       hasRequiredRoleId: Boolean(requiredRoleId),
