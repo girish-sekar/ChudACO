@@ -177,6 +177,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         },
       });
 
+      // Always force a fresh read on sign-in to avoid stale in-memory false cache.
+      roleCache.delete(discordId);
       let hasRequiredRole = await checkRequiredRole(discordId);
 
       if (hasRequiredRole !== true) {
@@ -191,17 +193,25 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
       }
 
+      if (hasRequiredRole === false) {
+        console.error("discord sign-in rejected: required role missing", {
+          discordId,
+          hasAccessToken: Boolean(account && typeof account.access_token === "string"),
+        });
+        return "/access-denied";
+      }
+
       if (hasRequiredRole !== true) {
         if (process.env.NODE_ENV !== "production") {
           console.warn("discord role check indeterminate in development; allowing sign-in");
           return true;
         }
 
-        console.error("discord sign-in rejected: required role not found", {
+        console.warn("discord role check indeterminate in production; allowing sign-in", {
           discordId,
           hasAccessToken: Boolean(account && typeof account.access_token === "string"),
         });
-        return "/access-denied";
+        return true;
       }
 
       return true;
