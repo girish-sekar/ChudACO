@@ -1,6 +1,6 @@
 import { prisma } from "@chudaco/db";
 import NextAuth from "next-auth";
-import Discord from "next-auth/providers/discord";
+import { authConfig } from "./auth.config";
 
 type RoleCacheEntry = {
   hasRequiredRole: boolean;
@@ -140,22 +140,7 @@ async function checkRequiredRoleWithAccessToken(
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  trustHost: true,
-  secret: process.env.NEXTAUTH_SECRET,
-  providers: [
-    Discord({
-      clientId: process.env.DISCORD_CLIENT_ID?.trim() ?? "",
-      clientSecret: process.env.DISCORD_CLIENT_SECRET?.trim() ?? "",
-      authorization: {
-        params: {
-          scope: "identify guilds guilds.members.read",
-        },
-      },
-    }),
-  ],
-  session: {
-    strategy: "jwt",
-  },
+  ...authConfig,
   callbacks: {
     async signIn({ user, profile, account }) {
       const discordProfile = profile as DiscordProfile | undefined;
@@ -284,8 +269,5 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       return session;
     },
-  },
-  pages: {
-    signIn: "/login",
   },
 });

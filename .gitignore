@@ -7,3 +7,6 @@ dist
 .DS_Store
 .tools
 studious-loader-506306-k2-d641df9f3ab4.jsonrelay-workers/.dev.vars
+
+relay-workers/.dev.vars
+studious-loader-506306-k2-d641df9f3ab4.json
