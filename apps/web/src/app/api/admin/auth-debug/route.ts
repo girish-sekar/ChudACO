@@ -23,17 +23,34 @@ type DebugResult = {
   error?: string;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await auth();
-  const discordId = session?.user?.discordId;
+  const sessionDiscordId = session?.user?.discordId;
+  const admins = getAdminDiscordIds();
 
-  if (!discordId) {
+  const url = new URL(request.url);
+  const searchParams = url.searchParams;
+  const debugKeyFromQuery = searchParams.get("debugKey")?.trim();
+  const debugDiscordId = searchParams.get("discordId")?.trim();
+  const internalApiKey = process.env.INTERNAL_API_KEY?.trim();
+
+  const hasAdminSession = Boolean(sessionDiscordId && admins.has(sessionDiscordId));
+  const hasDebugKey =
+    Boolean(internalApiKey) &&
+    Boolean(debugKeyFromQuery) &&
+    debugKeyFromQuery === internalApiKey;
+
+  if (!hasAdminSession && !hasDebugKey) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const admins = getAdminDiscordIds();
-  if (!admins.has(discordId)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const discordId = (hasAdminSession ? sessionDiscordId : debugDiscordId) ?? "";
+
+  if (!discordId) {
+    return NextResponse.json(
+      { error: "Missing discordId query parameter for key-based debug mode" },
+      { status: 400 },
+    );
   }
 
   const guildId = process.env.DISCORD_GUILD_ID?.trim() || null;
