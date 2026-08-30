@@ -235,10 +235,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const recentlyChecked =
         typeof roleToken.roleCheckedAt === "number" && now - roleToken.roleCheckedAt < cacheWindowMs;
 
-      // Avoid role refresh on every session read. Only force refresh on sign-in,
-      // or when the cached role state is missing/stale.
+      // Always force refresh for negative role checks (denied access) to prevent lockout.
+      // For positive checks, only refresh on sign-in or when stale.
       const shouldRefreshRole =
-        trigger === "signIn" || !hasCachedRole || !recentlyChecked;
+        trigger === "signIn" || 
+        !hasCachedRole || 
+        !recentlyChecked ||
+        roleToken.hasRequiredRole === false;
 
       if (discordId && shouldRefreshRole) {
         let resolvedRole = await checkRequiredRole(discordId);
