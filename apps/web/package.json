@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "dotenv -e ../../.env -- next dev -p 3001",
     "build": "dotenv -e ../../.env -- next build",
-    "start": "dotenv -e ../../.env -- next start -p 3001",
+    "start": "dotenv -e ../../.env -- sh -c 'next start -H 0.0.0.0 -p \"${PORT:-3001}\"'",
     "lint": "dotenv -e ../../.env -- next lint"
   },
   "dependencies": {

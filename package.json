@@ -7,6 +7,7 @@
     "dev:web": "pnpm --filter web dev",
     "dev:worker": "pnpm --filter worker dev",
     "build": "pnpm -r build",
+    "start": "pnpm --filter web start",
     "lint": "pnpm -r lint",
     "format": "prettier --write ."
   },

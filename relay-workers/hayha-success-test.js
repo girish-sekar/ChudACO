@@ -12,7 +12,13 @@ export default {
       const body = await parseBody(request);
 
       if (isTest(body)) {
-        await post(env.DISCORD_WEBHOOK_URL, testPayload("ChudACO Success", false));
+        const s = buildTestCheckoutPayload();
+        const mentionUserId = await resolveMentionId(env, s.profile);
+        console.log("test mentionUserId", mentionUserId || "none");
+        await Promise.all([
+          post(env.DISCORD_WEBHOOK_URL, testPayload("ChudACO Success", false, mentionUserId)),
+          postToChudaco(env, s)
+        ]);
         return ok("test");
       }
 
@@ -26,6 +32,7 @@ export default {
       // no match — degrades to "no mention" rather than blocking the
       // notification itself.
       const mentionUserId = await resolveMentionId(env, s.profile);
+      console.log("success mentionUserId", mentionUserId || "none", "profile", s.profile);
 
       // Fire both forwards in parallel — a slow or down ChudACO app must
       // never delay or block the existing, working Discord notification.
@@ -55,6 +62,20 @@ function blob(b) {
 }
 function isTest(b) { return /test webhook|testing|webhook test|ping/.test(blob(b)); }
 function isHayhaSuccess(b) { return /successful checkout|way to go|checked out|checkout success|\bsuccess\b/.test(blob(b)); }
+
+function buildTestCheckoutPayload() {
+  return {
+    profile: "girishsekar8392 - ACO #1",
+    site: "test-site",
+    mode: "test-mode",
+    item: "Test Item Name",
+    quantity: "1",
+    price: "$59.99",
+    size: "N/A",
+    color: "N/A",
+    image: "https://target.scene7.com/is/image/Target/GUEST_40ed4d44-2adc-4cfe-a27b-0ce8b6e73cba?wid=1200&hei=1200&qlt=80"
+  };
+}
 
 function fieldsMap(b) {
   const m = {};
@@ -123,19 +144,19 @@ function successPayload(name, s, mentionUserId) {
     embeds: [embed]
   };
 }
-function testPayload(name, isDecline) {
+function testPayload(name, isDecline, mentionUserId) {
   return {
     username: name,
-    content: "",
-    allowed_mentions: { parse: [] },
+    content: mentionUserId ? `<@${mentionUserId}>` : "",
+    allowed_mentions: mentionUserId ? { parse: [], users: [mentionUserId] } : { parse: [] },
     embeds: [{
       title: isDecline ? "Payment Declined (Test)" : "Successful Checkout (Test)",
       color: isDecline ? 15105570 : 5763719,
       fields: [
-        { name: "Profile Name", value: "test-profile", inline: true },
+        { name: "Profile Name", value: "girishsekar8392 - ACO #1", inline: true },
         { name: "Mode", value: "test-mode", inline: true },
         { name: "Quantity", value: "1", inline: true },
-        { name: "Price", value: "$19.99", inline: true },
+        { name: "Price", value: "$59.99", inline: true },
         { name: "Item", value: "Test Item Name", inline: false }
       ],
       thumbnail: { url: "https://target.scene7.com/is/image/Target/GUEST_40ed4d44-2adc-4cfe-a27b-0ce8b6e73cba?wid=1200&hei=1200&qlt=80" },
@@ -158,7 +179,7 @@ async function postToChudaco(env, s) {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-worker-secret": env.WORKER_INGEST_SECRET || ""
+        "x-internal-api-key": env.INTERNAL_API_KEY || ""
       },
       body: JSON.stringify(s)
     });
@@ -189,35 +210,31 @@ async function resolveMentionId(env, profile) {
   if (!username) return null;
   if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_GUILD_ID) return null;
 
-  const cacheKey = `mention:${username.toLowerCase()}`;
-  if (env.MENTION_CACHE) {
-    try {
-      const cached = await env.MENTION_CACHE.get(cacheKey);
-      if (cached) return cached;
-    } catch (e) { console.log("mention cache read error", String(e)); }
-  }
-
   try {
-    const url = `https://discord.com/api/v10/guilds/${env.DISCORD_GUILD_ID}/members/search?query=${encodeURIComponent(username)}&limit=5`;
+    const url = `https://discord.com/api/v10/guilds/${env.DISCORD_GUILD_ID}/members/search?query=${encodeURIComponent(username)}&limit=10`;
     const r = await fetch(url, { headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } });
     if (!r.ok) {
       console.log("member search failed", r.status, await r.text());
       return null;
     }
-    const results = await r.json();
-    // Guild member search is a PREFIX match, not exact — a search for
-    // "kai" would also match "kaizen99". Require an exact, case-sensitive
-    // username match before ever using a result, so this can't ping the
-    // wrong person off a partial match.
-    const match = Array.isArray(results) ? results.find(m => m?.user?.username === username) : null;
-    if (!match) return null;
 
-    const id = match.user.id;
-    if (env.MENTION_CACHE) {
-      try { await env.MENTION_CACHE.put(cacheKey, id, { expirationTtl: 86400 }); }
-      catch (e) { console.log("mention cache write error", String(e)); }
-    }
-    return id;
+    const results = await r.json();
+    const target = username.toLowerCase();
+    const match = Array.isArray(results)
+      ? results.find((m) => {
+          const usernameCandidate = String(m?.user?.username || "").toLowerCase();
+          const globalNameCandidate = String(m?.user?.global_name || "").toLowerCase();
+          const nickCandidate = String(m?.nick || "").toLowerCase();
+          return (
+            usernameCandidate === target ||
+            globalNameCandidate === target ||
+            nickCandidate === target
+          );
+        })
+      : null;
+
+    if (!match?.user?.id) return null;
+    return String(match.user.id);
   } catch (e) {
     console.log("member search error", String(e));
     return null;

@@ -12,7 +12,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "migrate": "dotenv -e ../../.env -- prisma migrate dev",
+    "migrate": "dotenv -e ../../.env -- prisma migrate",
     "generate": "dotenv -e ../../.env -- prisma generate",
     "seed": "dotenv -e ../../.env -- tsx seed.ts",
     "backfill:account-shipping": "dotenv -e ../../.env -- tsx migrations-scripts/backfill-account-shipping.ts",
