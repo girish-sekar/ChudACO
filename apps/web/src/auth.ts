@@ -28,8 +28,8 @@ type RoleToken = {
   roleCheckedAt?: number;
 };
 
-function getDiscordAvatarUrl(profile: DiscordProfile): string | null {
-  if (!profile.avatar) {
+function getDiscordAvatarUrl(profile: DiscordProfile | undefined): string | null {
+  if (!profile?.avatar) {
     return null;
   }
 
