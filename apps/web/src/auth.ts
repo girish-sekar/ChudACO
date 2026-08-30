@@ -29,7 +29,7 @@ function getDiscordAvatarUrl(profile: DiscordProfile): string | null {
   return `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.png`;
 }
 
-async function checkRequiredRole(discordUserId: string): Promise<boolean> {
+async function checkRequiredRole(discordUserId: string): Promise<boolean | null> {
   const cached = roleCache.get(discordUserId);
   const now = Date.now();
 
@@ -37,12 +37,12 @@ async function checkRequiredRole(discordUserId: string): Promise<boolean> {
     return cached.hasRequiredRole;
   }
 
-  const guildId = process.env.DISCORD_GUILD_ID;
-  const requiredRoleId = process.env.DISCORD_REQUIRED_ROLE_ID;
-  const botToken = process.env.DISCORD_BOT_TOKEN;
+  const guildId = process.env.DISCORD_GUILD_ID?.trim();
+  const requiredRoleId = process.env.DISCORD_REQUIRED_ROLE_ID?.trim();
+  const botToken = process.env.DISCORD_BOT_TOKEN?.trim();
 
   if (!guildId || !requiredRoleId || !botToken) {
-    return false;
+    return null;
   }
 
   const endpoint = `https://discord.com/api/v10/guilds/${guildId}/members/${discordUserId}`;
@@ -58,15 +58,25 @@ async function checkRequiredRole(discordUserId: string): Promise<boolean> {
     });
 
     if (!response.ok) {
-      roleCache.set(discordUserId, { hasRequiredRole: false, checkedAt: now });
-      return false;
+      console.error("discord role check failed (bot token)", {
+        status: response.status,
+        statusText: response.statusText,
+      });
+
+      // 404 is a definitive "not in guild member list" answer.
+      if (response.status === 404) {
+        roleCache.set(discordUserId, { hasRequiredRole: false, checkedAt: now });
+        return false;
+      }
+
+      return null;
     }
 
     const member = (await response.json()) as { roles?: string[] };
     hasRequiredRole = member.roles?.includes(requiredRoleId) ?? false;
   } catch {
-    roleCache.set(discordUserId, { hasRequiredRole: false, checkedAt: now });
-    return false;
+    console.error("discord role check failed (bot token request error)");
+    return null;
   }
 
   // This should move to Redis in production to share cache across instances.
@@ -79,8 +89,8 @@ async function checkRequiredRoleWithAccessToken(
   accessToken: string,
 ): Promise<boolean | null> {
   const now = Date.now();
-  const guildId = process.env.DISCORD_GUILD_ID;
-  const requiredRoleId = process.env.DISCORD_REQUIRED_ROLE_ID;
+  const guildId = process.env.DISCORD_GUILD_ID?.trim();
+  const requiredRoleId = process.env.DISCORD_REQUIRED_ROLE_ID?.trim();
 
   if (!guildId || !requiredRoleId) {
     return null;
@@ -97,6 +107,10 @@ async function checkRequiredRoleWithAccessToken(
     });
 
     if (!response.ok) {
+      console.error("discord role check failed (oauth token)", {
+        status: response.status,
+        statusText: response.statusText,
+      });
       return null;
     }
 
@@ -105,6 +119,7 @@ async function checkRequiredRoleWithAccessToken(
     roleCache.set(discordUserId, { hasRequiredRole, checkedAt: now });
     return hasRequiredRole;
   } catch {
+    console.error("discord role check failed (oauth token request error)");
     return null;
   }
 }
@@ -114,8 +129,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   secret: process.env.NEXTAUTH_SECRET,
   providers: [
     Discord({
-      clientId: process.env.DISCORD_CLIENT_ID ?? "",
-      clientSecret: process.env.DISCORD_CLIENT_SECRET ?? "",
+      clientId: process.env.DISCORD_CLIENT_ID?.trim() ?? "",
+      clientSecret: process.env.DISCORD_CLIENT_SECRET?.trim() ?? "",
       authorization: {
         params: {
           scope: "identify guilds guilds.members.read",
@@ -154,7 +169,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       let hasRequiredRole = await checkRequiredRole(discordId);
 
-      if (!hasRequiredRole) {
+      if (hasRequiredRole !== true) {
         const accessToken =
           account && typeof account.access_token === "string" ? account.access_token : undefined;
 
@@ -166,13 +181,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
       }
 
-      if (!hasRequiredRole) {
+      if (hasRequiredRole !== true) {
+        console.error("discord sign-in rejected: required role not found", {
+          discordId,
+          hasAccessToken: Boolean(account && typeof account.access_token === "string"),
+        });
         return "/access-denied";
       }
 
       return true;
     },
-    async jwt({ token, profile }) {
+    async jwt({ token, profile, account }) {
       const discordProfile = profile as DiscordProfile | undefined;
 
       if (discordProfile?.id) {
@@ -182,7 +201,25 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const discordId = typeof token.discordId === "string" ? token.discordId : undefined;
 
       if (discordId) {
-        token.hasRequiredRole = await checkRequiredRole(discordId);
+        let resolvedRole = await checkRequiredRole(discordId);
+
+        if (resolvedRole !== true) {
+          const accessToken =
+            account && typeof account.access_token === "string" ? account.access_token : undefined;
+
+          if (accessToken) {
+            const fallbackResult = await checkRequiredRoleWithAccessToken(discordId, accessToken);
+            if (fallbackResult !== null) {
+              resolvedRole = fallbackResult;
+            }
+          }
+        }
+
+        if (resolvedRole === true || resolvedRole === false) {
+          token.hasRequiredRole = resolvedRole;
+        } else if (typeof token.hasRequiredRole !== "boolean") {
+          token.hasRequiredRole = false;
+        }
       } else {
         token.hasRequiredRole = false;
       }
