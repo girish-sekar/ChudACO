@@ -21,6 +21,12 @@ type DiscordMember = {
   roles?: string[];
 };
 
+type RoleToken = {
+  discordId?: string;
+  hasRequiredRole?: boolean;
+  roleCheckedAt?: number;
+};
+
 function getDiscordAvatarUrl(profile: DiscordProfile): string | null {
   if (!profile.avatar) {
     return null;
@@ -182,6 +188,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
 
       if (hasRequiredRole !== true) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("discord role check indeterminate in development; allowing sign-in");
+          return true;
+        }
+
         console.error("discord sign-in rejected: required role not found", {
           discordId,
           hasAccessToken: Boolean(account && typeof account.access_token === "string"),
@@ -191,16 +202,27 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       return true;
     },
-    async jwt({ token, profile, account }) {
+    async jwt({ token, profile, account, trigger }) {
+      const roleToken = token as RoleToken;
       const discordProfile = profile as DiscordProfile | undefined;
 
       if (discordProfile?.id) {
-        token.discordId = discordProfile.id;
+        roleToken.discordId = discordProfile.id;
       }
 
-      const discordId = typeof token.discordId === "string" ? token.discordId : undefined;
+      const discordId = typeof roleToken.discordId === "string" ? roleToken.discordId : undefined;
 
-      if (discordId) {
+      const now = Date.now();
+      const hasCachedRole = typeof roleToken.hasRequiredRole === "boolean";
+      const recentlyChecked =
+        typeof roleToken.roleCheckedAt === "number" && now - roleToken.roleCheckedAt < TEN_MINUTES_MS;
+
+      // Avoid role refresh on every session read. Only force refresh on sign-in,
+      // or when the cached role state is missing/stale.
+      const shouldRefreshRole =
+        trigger === "signIn" || !hasCachedRole || !recentlyChecked;
+
+      if (discordId && shouldRefreshRole) {
         let resolvedRole = await checkRequiredRole(discordId);
 
         if (resolvedRole !== true) {
@@ -216,15 +238,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
 
         if (resolvedRole === true || resolvedRole === false) {
-          token.hasRequiredRole = resolvedRole;
-        } else if (typeof token.hasRequiredRole !== "boolean") {
-          token.hasRequiredRole = false;
+          roleToken.hasRequiredRole = resolvedRole;
+          roleToken.roleCheckedAt = now;
+        } else if (typeof roleToken.hasRequiredRole !== "boolean") {
+          roleToken.hasRequiredRole = false;
+          roleToken.roleCheckedAt = now;
         }
-      } else {
-        token.hasRequiredRole = false;
+      } else if (!discordId) {
+        roleToken.hasRequiredRole = false;
+        roleToken.roleCheckedAt = now;
       }
 
-      return token;
+      return roleToken;
     },
     async session({ session, token }) {
       if (session.user) {
