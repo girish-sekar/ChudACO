@@ -262,7 +262,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           roleToken.hasRequiredRole = resolvedRole;
           roleToken.roleCheckedAt = now;
         } else if (typeof roleToken.hasRequiredRole !== "boolean") {
-          roleToken.hasRequiredRole = false;
+          // If indeterminate on first check, default to true (since signIn already succeeded)
+          // For subsequent checks, keep the existing value
+          roleToken.hasRequiredRole = trigger === "signIn" ? true : false;
           roleToken.roleCheckedAt = now;
         }
       } else if (!discordId) {
