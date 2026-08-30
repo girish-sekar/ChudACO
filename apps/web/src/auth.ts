@@ -259,20 +259,24 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
 
         if (resolvedRole === true || resolvedRole === false) {
+          // Definitive answer from Discord: update the token
           roleToken.hasRequiredRole = resolvedRole;
           roleToken.roleCheckedAt = now;
         } else {
-          // Role check returned null (indeterminate)
+          // Role check returned null (indeterminate - network error, API timeout, etc.)
           if (trigger === "signIn") {
             // On sign-in, if indeterminate, default to true (signIn callback already succeeded)
             roleToken.hasRequiredRole = true;
             roleToken.roleCheckedAt = now;
-          } else if (typeof roleToken.hasRequiredRole !== "boolean") {
-            // Not sign-in and no existing value: default to false
+          } else if (typeof roleToken.hasRequiredRole === "boolean") {
+            // Keep existing value - don't let transient failures revoke access
+            // Just update the timestamp so we retry sooner (negative cache TTL)
+            roleToken.roleCheckedAt = now;
+          } else {
+            // First time ever (no existing value) and not sign-in: default to false
             roleToken.hasRequiredRole = false;
             roleToken.roleCheckedAt = now;
           }
-          // Otherwise keep existing value (prevents transient failures from revoking access)
        }
       } else if (!discordId) {
         roleToken.hasRequiredRole = false;
