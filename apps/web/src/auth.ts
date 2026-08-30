@@ -28,6 +28,11 @@ type RoleToken = {
   roleCheckedAt?: number;
 };
 
+function isAdminDiscordId(discordId: string): boolean {
+  const raw = process.env.ADMIN_DISCORD_IDS ?? "";
+  return raw.split(",").map(s => s.trim()).filter(Boolean).includes(discordId);
+}
+
 function getDiscordAvatarUrl(profile: DiscordProfile | undefined): string | null {
   if (!profile?.avatar) {
     return null;
@@ -180,6 +185,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         },
       });
 
+      // Admin users always get access regardless of role check.
+      if (isAdminDiscordId(discordId)) {
+        return true;
+      }
+
       // Always force a fresh read on sign-in to avoid stale in-memory false cache.
       roleCache.delete(discordId);
       let hasRequiredRole = await checkRequiredRole(discordId);
@@ -231,10 +241,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const discordId = typeof roleToken.discordId === "string" ? roleToken.discordId : undefined;
 
-        // Only check Discord API on sign-in. For all other session reads,
-        // carry forward the existing token value. This avoids fragile
-        // network calls on every request that crash the session on DNS/timeout.
-        if (trigger === "signIn" && discordId) {
+        // Admin users always get full access.
+        if (discordId && isAdminDiscordId(discordId)) {
+          roleToken.hasRequiredRole = true;
+          roleToken.roleCheckedAt = Date.now();
+        } else if (trigger === "signIn" && discordId) {
+          // Only check Discord API on sign-in. For all other session reads,
+          // carry forward the existing token value.
           let resolvedRole = await checkRequiredRole(discordId);
 
           if (resolvedRole !== true) {
