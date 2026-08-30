@@ -7,7 +7,8 @@ type RoleCacheEntry = {
   checkedAt: number;
 };
 
-const TEN_MINUTES_MS = 10 * 60 * 1000;
+const POSITIVE_ROLE_CACHE_MS = 10 * 60 * 1000;
+const NEGATIVE_ROLE_CACHE_MS = 30 * 1000;
 const roleCache = new Map<string, RoleCacheEntry>();
 
 type DiscordProfile = {
@@ -39,8 +40,11 @@ async function checkRequiredRole(discordUserId: string): Promise<boolean | null>
   const cached = roleCache.get(discordUserId);
   const now = Date.now();
 
-  if (cached && now - cached.checkedAt < TEN_MINUTES_MS) {
-    return cached.hasRequiredRole;
+  if (cached) {
+    const ttlMs = cached.hasRequiredRole ? POSITIVE_ROLE_CACHE_MS : NEGATIVE_ROLE_CACHE_MS;
+    if (now - cached.checkedAt < ttlMs) {
+      return cached.hasRequiredRole;
+    }
   }
 
   const guildId = process.env.DISCORD_GUILD_ID?.trim();
@@ -214,8 +218,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
       const now = Date.now();
       const hasCachedRole = typeof roleToken.hasRequiredRole === "boolean";
+      const cacheWindowMs = roleToken.hasRequiredRole ? POSITIVE_ROLE_CACHE_MS : NEGATIVE_ROLE_CACHE_MS;
       const recentlyChecked =
-        typeof roleToken.roleCheckedAt === "number" && now - roleToken.roleCheckedAt < TEN_MINUTES_MS;
+        typeof roleToken.roleCheckedAt === "number" && now - roleToken.roleCheckedAt < cacheWindowMs;
 
       // Avoid role refresh on every session read. Only force refresh on sign-in,
       // or when the cached role state is missing/stale.
