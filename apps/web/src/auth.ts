@@ -17,6 +17,10 @@ type DiscordProfile = {
   avatar?: string | null;
 };
 
+type DiscordMember = {
+  roles?: string[];
+};
+
 function getDiscordAvatarUrl(profile: DiscordProfile): string | null {
   if (!profile.avatar) {
     return null;
@@ -70,6 +74,41 @@ async function checkRequiredRole(discordUserId: string): Promise<boolean> {
   return hasRequiredRole;
 }
 
+async function checkRequiredRoleWithAccessToken(
+  discordUserId: string,
+  accessToken: string,
+): Promise<boolean | null> {
+  const now = Date.now();
+  const guildId = process.env.DISCORD_GUILD_ID;
+  const requiredRoleId = process.env.DISCORD_REQUIRED_ROLE_ID;
+
+  if (!guildId || !requiredRoleId) {
+    return null;
+  }
+
+  const endpoint = `https://discord.com/api/v10/users/@me/guilds/${guildId}/member`;
+
+  try {
+    const response = await fetch(endpoint, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const member = (await response.json()) as DiscordMember;
+    const hasRequiredRole = member.roles?.includes(requiredRoleId) ?? false;
+    roleCache.set(discordUserId, { hasRequiredRole, checkedAt: now });
+    return hasRequiredRole;
+  } catch {
+    return null;
+  }
+}
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
   trustHost: true,
   secret: process.env.NEXTAUTH_SECRET,
@@ -88,7 +127,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     strategy: "jwt",
   },
   callbacks: {
-    async signIn({ user, profile }) {
+    async signIn({ user, profile, account }) {
       const discordProfile = profile as DiscordProfile | undefined;
       const discordId = discordProfile?.id;
 
@@ -113,7 +152,20 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         },
       });
 
-      const hasRequiredRole = await checkRequiredRole(discordId);
+      let hasRequiredRole = await checkRequiredRole(discordId);
+
+      if (!hasRequiredRole) {
+        const accessToken =
+          account && typeof account.access_token === "string" ? account.access_token : undefined;
+
+        if (accessToken) {
+          const fallbackResult = await checkRequiredRoleWithAccessToken(discordId, accessToken);
+          if (fallbackResult !== null) {
+            hasRequiredRole = fallbackResult;
+          }
+        }
+      }
+
       if (!hasRequiredRole) {
         return "/access-denied";
       }
