@@ -11,7 +11,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "dotenv -e ../../.env -- prisma generate && tsc -p tsconfig.json",
     "migrate": "dotenv -e ../../.env -- prisma migrate",
     "generate": "dotenv -e ../../.env -- prisma generate",
     "seed": "dotenv -e ../../.env -- tsx seed.ts",
