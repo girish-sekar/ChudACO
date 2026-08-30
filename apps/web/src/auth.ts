@@ -221,66 +221,44 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
     async jwt({ token, profile, account, trigger }) {
       const roleToken = token as RoleToken;
-      const discordProfile = profile as DiscordProfile | undefined;
 
-      if (discordProfile?.id) {
-        roleToken.discordId = discordProfile.id;
-      }
+      try {
+        const discordProfile = profile as DiscordProfile | undefined;
 
-      const discordId = typeof roleToken.discordId === "string" ? roleToken.discordId : undefined;
-
-      const now = Date.now();
-      const hasCachedRole = typeof roleToken.hasRequiredRole === "boolean";
-      const cacheWindowMs = roleToken.hasRequiredRole ? POSITIVE_ROLE_CACHE_MS : NEGATIVE_ROLE_CACHE_MS;
-      const recentlyChecked =
-        typeof roleToken.roleCheckedAt === "number" && now - roleToken.roleCheckedAt < cacheWindowMs;
-
-      // Always force refresh for negative role checks (denied access) to prevent lockout.
-      // For positive checks, only refresh on sign-in or when stale.
-      const shouldRefreshRole =
-        trigger === "signIn" || 
-        !hasCachedRole || 
-        !recentlyChecked ||
-        roleToken.hasRequiredRole === false;
-
-      if (discordId && shouldRefreshRole) {
-        let resolvedRole = await checkRequiredRole(discordId);
-
-        if (resolvedRole !== true) {
-          const accessToken =
-            account && typeof account.access_token === "string" ? account.access_token : undefined;
-
-          if (accessToken) {
-            const fallbackResult = await checkRequiredRoleWithAccessToken(discordId, accessToken);
-            if (fallbackResult !== null) {
-              resolvedRole = fallbackResult;
-            }
-          }
+        if (discordProfile?.id) {
+          roleToken.discordId = discordProfile.id;
         }
 
-        if (resolvedRole === true || resolvedRole === false) {
-          // Definitive answer from Discord: update the token
-          roleToken.hasRequiredRole = resolvedRole;
-          roleToken.roleCheckedAt = now;
-        } else {
-          // Role check returned null (indeterminate - network error, API timeout, etc.)
-          if (trigger === "signIn") {
-            // On sign-in, if indeterminate, default to true (signIn callback already succeeded)
-            roleToken.hasRequiredRole = true;
-            roleToken.roleCheckedAt = now;
-          } else if (typeof roleToken.hasRequiredRole === "boolean") {
-            // Keep existing value - don't let transient failures revoke access
-            // Just update the timestamp so we retry sooner (negative cache TTL)
-            roleToken.roleCheckedAt = now;
-          } else {
-            // First time ever (no existing value) and not sign-in: default to false
-            roleToken.hasRequiredRole = false;
-            roleToken.roleCheckedAt = now;
+        const discordId = typeof roleToken.discordId === "string" ? roleToken.discordId : undefined;
+
+        // Only check Discord API on sign-in. For all other session reads,
+        // carry forward the existing token value. This avoids fragile
+        // network calls on every request that crash the session on DNS/timeout.
+        if (trigger === "signIn" && discordId) {
+          let resolvedRole = await checkRequiredRole(discordId);
+
+          if (resolvedRole !== true) {
+            const accessToken =
+              account && typeof account.access_token === "string" ? account.access_token : undefined;
+
+            if (accessToken) {
+              const fallbackResult = await checkRequiredRoleWithAccessToken(discordId, accessToken);
+              if (fallbackResult !== null) {
+                resolvedRole = fallbackResult;
+              }
+            }
           }
-       }
-      } else if (!discordId) {
-        roleToken.hasRequiredRole = false;
-        roleToken.roleCheckedAt = now;
+
+          // signIn callback already verified the role, so default to true if indeterminate.
+          roleToken.hasRequiredRole = resolvedRole ?? true;
+          roleToken.roleCheckedAt = Date.now();
+        } else if (!discordId) {
+          roleToken.hasRequiredRole = false;
+        }
+        // All other triggers: keep existing roleToken values untouched.
+      } catch (err) {
+        console.error("jwt callback error, preserving existing token values", err);
+        // Never let an error destroy the session — keep whatever values are in the token.
       }
 
       return roleToken;
