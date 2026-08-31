@@ -1,4 +1,4 @@
-import { signIn } from "@/auth";
+import { SignInButton } from "@/components/sign-in-button";
 
 export default function LoginPage() {
   return (
@@ -68,20 +68,9 @@ export default function LoginPage() {
             ChudACO HQ.
           </p>
 
-          <form
-            className="mt-8"
-            action={async () => {
-              "use server";
-              await signIn("discord", { redirectTo: "/dashboard" });
-            }}
-          >
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-[#5865F2] px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110"
-            >
-              Continue with Discord
-            </button>
-          </form>
+          <div className="mt-8">
+            <SignInButton />
+          </div>
 
           <p className="mt-4 text-xs text-[#8C8CA2]">Role-gated login. Session is scoped to your Discord identity.</p>
         </div>

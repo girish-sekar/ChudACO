@@ -11,6 +11,11 @@ import {
 
 type AccountsResponse = {
   data: AcoAccount[];
+  meta?: {
+    maxAccountsPerUser: number;
+    currentAccounts: number;
+    remainingAccounts: number;
+  };
 };
 
 type CardOnFileResponse = {
@@ -148,6 +153,10 @@ export default function AccountsPage() {
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
+  const maxAccountsPerUser = data?.meta?.maxAccountsPerUser ?? 2;
+  const currentAccounts = data?.meta?.currentAccounts ?? data?.data?.length ?? 0;
+  const isCreateLimitReached = editingId === null && currentAccounts >= maxAccountsPerUser;
+
   useEffect(() => {
     if (!statusBanner?.pulse) {
       setShowSuccessPulse(false);
@@ -189,6 +198,14 @@ export default function AccountsPage() {
   }
 
   function startCreate() {
+    if (currentAccounts >= maxAccountsPerUser) {
+      setStatusBanner({
+        message: `Account limit reached. You can create up to ${maxAccountsPerUser} accounts.`,
+        tone: "error",
+      });
+      return;
+    }
+
     setStatusBanner(null);
     setEditingId(null);
     setFormState(defaultFormState);
@@ -278,6 +295,15 @@ export default function AccountsPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!editingId && currentAccounts >= maxAccountsPerUser) {
+      setStatusBanner({
+        message: `Account limit reached. You can create up to ${maxAccountsPerUser} accounts.`,
+        tone: "error",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
 
     const cleanedRetailerLogins = formState.retailerLogins
@@ -568,13 +594,21 @@ export default function AccountsPage() {
           <p className="mt-1 text-sm text-[#9C9AAE]">
             Manage IMAP inboxes, per-account shipping, and payment relay settings.
           </p>
+          <p className="mt-1 text-xs text-[#72708A]">
+            {currentAccounts}/{maxAccountsPerUser} accounts used.
+          </p>
         </div>
         <button
           type="button"
           onClick={startCreate}
-          className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6]"
+          disabled={isCreateLimitReached}
+          className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {showForm && editingId === null ? "Close" : "Add account"}
+          {isCreateLimitReached
+            ? `Limit reached (${maxAccountsPerUser})`
+            : showForm && editingId === null
+              ? "Close"
+              : "Add account"}
         </button>
       </header>
 

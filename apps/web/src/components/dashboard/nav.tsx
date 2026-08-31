@@ -9,16 +9,18 @@ const links = [
   { href: "/dashboard/billing", label: "Billing" },
   { href: "/dashboard/pricing", label: "Pricing" },
   { href: "/dashboard/accounts", label: "Accounts" },
-  { href: "/dashboard/admin", label: "Admin" },
+  { href: "/dashboard/admin", label: "Admin", adminOnly: true },
   { href: "/dashboard/profile", label: "Profile" },
 ];
 
-export function DashboardNav() {
+export function DashboardNav({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
 
   return (
     <nav className="mt-8 space-y-2">
-      {links.map((link) => {
+      {links
+        .filter((link) => !link.adminOnly || isAdmin)
+        .map((link) => {
         const isActive = pathname === link.href;
         return (
           <Link

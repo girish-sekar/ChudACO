@@ -78,6 +78,33 @@ type SanitizedAcoAccount = {
   }[];
 };
 
+const DEFAULT_MAX_ACCOUNTS_PER_USER = 2;
+
+class MaxAccountsPerUserError extends Error {
+  constructor(public readonly maxAccountsPerUser: number) {
+    super(`Maximum of ${maxAccountsPerUser} accounts per user reached`);
+    this.name = "MaxAccountsPerUserError";
+  }
+}
+
+function getMaxAccountsPerUser(): number {
+  const raw = process.env.MAX_ACCOUNTS_PER_USER?.trim();
+  if (!raw) {
+    return DEFAULT_MAX_ACCOUNTS_PER_USER;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    console.warn("Invalid MAX_ACCOUNTS_PER_USER value, falling back to default", {
+      value: raw,
+      fallback: DEFAULT_MAX_ACCOUNTS_PER_USER,
+    });
+    return DEFAULT_MAX_ACCOUNTS_PER_USER;
+  }
+
+  return parsed;
+}
+
 function sanitizeAcoAccount(account: {
   id: string;
   userId: string;
@@ -152,6 +179,8 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const maxAccountsPerUser = getMaxAccountsPerUser();
+
   const accounts = await prisma.acoAccount.findMany({
     where: { userId: authContext.userId },
     select: {
@@ -197,6 +226,11 @@ export async function GET() {
 
   return NextResponse.json({
     data: accounts.map((account) => sanitizeAcoAccount(account)),
+    meta: {
+      maxAccountsPerUser,
+      currentAccounts: accounts.length,
+      remainingAccounts: Math.max(0, maxAccountsPerUser - accounts.length),
+    },
   });
 }
 
@@ -205,6 +239,8 @@ export async function POST(request: Request) {
   if (!authContext) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const maxAccountsPerUser = getMaxAccountsPerUser();
 
   const body = await request.json().catch(() => null);
   const parsed = createAcoAccountSchema.safeParse(body);
@@ -243,22 +279,32 @@ export async function POST(request: Request) {
   const primaryRetailerLogin = encryptedRetailerLogins[0];
   const billingSameAsShipping = parsed.data.billingSameAsShipping ?? true;
 
-  const account = await prisma.$transaction(async (tx) => {
-    const userAfterIncrement = await tx.user.update({
-      where: { id: authContext.userId },
-      data: {
-        nextAcoAccountNumber: { increment: 1 },
-      },
-      select: {
-        username: true,
-        nextAcoAccountNumber: true,
-      },
-    });
+  let account;
+  try {
+    account = await prisma.$transaction(async (tx) => {
+      const accountCount = await tx.acoAccount.count({
+        where: { userId: authContext.userId },
+      });
 
-    const accountNumber = userAfterIncrement.nextAcoAccountNumber - 1;
-    const botProfileName = `${userAfterIncrement.username} - ACO #${accountNumber}`;
+      if (accountCount >= maxAccountsPerUser) {
+        throw new MaxAccountsPerUserError(maxAccountsPerUser);
+      }
 
-    return tx.acoAccount.create({
+      const userAfterIncrement = await tx.user.update({
+        where: { id: authContext.userId },
+        data: {
+          nextAcoAccountNumber: { increment: 1 },
+        },
+        select: {
+          username: true,
+          nextAcoAccountNumber: true,
+        },
+      });
+
+      const accountNumber = userAfterIncrement.nextAcoAccountNumber - 1;
+      const botProfileName = `${userAfterIncrement.username} - ACO #${accountNumber}`;
+
+      return tx.acoAccount.create({
       data: {
         userId: authContext.userId,
         accountNumber,
@@ -331,8 +377,21 @@ export async function POST(request: Request) {
           orderBy: { retailer: "asc" },
         },
       },
+      });
     });
-  });
+  } catch (error) {
+    if (error instanceof MaxAccountsPerUserError) {
+      return NextResponse.json(
+        {
+          error: "Account limit reached",
+          detail: `You can create up to ${error.maxAccountsPerUser} accounts.`,
+        },
+        { status: 409 },
+      );
+    }
+
+    throw error;
+  }
 
   let syncWarning: string | null = null;
 
