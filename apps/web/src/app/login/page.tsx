@@ -1,4 +1,5 @@
 import { SignInButton } from "@/components/sign-in-button";
+import Link from "next/link";
 
 export default function LoginPage() {
   return (
@@ -66,6 +67,14 @@ export default function LoginPage() {
           <p className="mt-4 text-sm text-[#B8B8C7]">
             Continue with Discord to access your dashboard. This requires the Cop Access role in
             ChudACO HQ.
+          </p>
+
+          <p className="mt-3 text-sm text-[#9C9AAE]">
+            New here? Read the{" "}
+            <Link href="/setup-guide" className="text-[#B9C6FF] hover:underline">
+              Setup Guide
+            </Link>
+            .
           </p>
 
           <div className="mt-8">
