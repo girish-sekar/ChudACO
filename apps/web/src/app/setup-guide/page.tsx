@@ -228,6 +228,10 @@ export default function SetupGuidePage() {
             <p className="mt-4 max-w-[68ch]">
               Successful checkouts are posted in the server success channel and include a user tag. Results also appear on Overview and Checkouts pages.
             </p>
+            <div className="mt-4 flex max-w-[68ch] gap-3 rounded-lg border border-[#33417D] bg-[#1B2650] px-4 py-3 text-sm text-[#B9C6FF]">
+              <span className="font-mono">i</span>
+              <span>At any time, run <strong>/balance</strong> in Discord to check your current PAS balance without opening the dashboard.</span>
+            </div>
             <p className="mt-3 max-w-[68ch]">
               For a fast balance check in Discord, run <span className="rounded border border-[#2C2D3A] bg-[#212230] px-1.5 py-0.5 font-mono text-sm">/balance</span>.
             </p>
