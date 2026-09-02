@@ -155,6 +155,7 @@ export default function SetupGuidePage() {
               <li><strong>Email address:</strong> Use the inbox that receives retailer order and verification emails.</li>
               <li><strong>IMAP host, port, security:</strong> If provider is Other, enter manually. Most providers use port 993 with SSL/TLS.</li>
               <li><strong>Email password:</strong> Use an app password if your provider requires one.</li>
+              <li><strong>Test IMAP connection:</strong> After filling these fields, click <strong>Test IMAP connection</strong> to confirm the credentials and server settings are valid before saving.</li>
             </ul>
             <div className="mt-4 flex max-w-[68ch] gap-3 rounded-lg border border-[#5C4A1A] bg-[#332B12] px-4 py-3 text-sm text-[#FFCB3C]">
               <span className="font-mono">!</span>
