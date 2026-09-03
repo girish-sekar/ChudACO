@@ -35,7 +35,7 @@ export default function SetupGuidePage() {
 
       <section className="mx-auto grid w-full max-w-6xl gap-10 px-6 pb-12 pt-14 md:grid-cols-[1.1fr_0.9fr] md:items-center">
         <div>
-          <h1 className="font-heading text-4xl font-bold leading-tight md:text-5xl">Get set up in about ten minutes.</h1>
+          <h1 className="font-heading text-4xl font-bold leading-tight md:text-5xl">Get set up in minutes.</h1>
           <p className="mt-4 max-w-[48ch] text-base text-[#9C9AAE]">
             This guide walks through joining, connecting an account, and understanding how you are billed. No login is needed to read it.
           </p>

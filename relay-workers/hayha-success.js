@@ -6,36 +6,25 @@ export default {
 
       if (env.RELAY_SECRET) {
         const secret = request.headers.get("x-relay-secret") || "";
-        if (secret !== env.RELAY_SECRET) return ok("accepted");
+        if (secret !== env.RELAY_SECRET) 
+          console.log("rejected: relay secret mismatch");
+          return ok("accepted");
       }
 
       const body = await parseBody(request);
 
       if (isTest(body)) {
+        console.log("test webhook received");
         await post(env.DISCORD_WEBHOOK_URL, testPayload("ChudACO Success", false));
         return ok("test");
       }
 
-      if (!isHayhaSuccess(body)) return ok("not success");
+      if (!isHayhaSuccess(body)) 
+        console.log("not matched as success:", blob(body).slice(0, 200));
+        return ok("not success");
 
       const s = sanitize(body);
-
-      // Resolving the mention happens BEFORE the Discord post, since the
-      // mention (if any) needs to be baked into that payload's content
-      // field. It's wrapped so any failure here — bad format, API error,
-      // no match — degrades to "no mention" rather than blocking the
-      // notification itself.
-      const mentionUserId = await resolveMentionId(env, s.profile);
-
-      // Fire both forwards in parallel — a slow or down ChudACO app must
-      // never delay or block the existing, working Discord notification.
-      // post() already swallows its own errors internally, so a failure
-      // in either one can't throw and break the other.
-      await Promise.all([
-        post(env.DISCORD_WEBHOOK_URL, successPayload("ChudACO Success", s, mentionUserId)),
-        postToChudaco(env, s)
-      ]);
-
+      await post(env.DISCORD_WEBHOOK_URL, successPayload("ChudACO Success", s));
       return ok("forwarded");
     } catch (e) {
       console.log("error", String(e));
@@ -95,33 +84,25 @@ function sanitize(b) {
     image: imageOf(b)
   };
 }
-function successPayload(name, s, mentionUserId) {
+function successPayload(name, s) {
   const embed = {
     title: "Successful Checkout",
     color: 5763719,
     fields: [
       { name: "Profile Name", value: s.profile, inline: true },
-      { name: "Mode", value: s.mode, inline: true },
+      // { name: "Site", value: s.site, inline: true },
+      // { name: "Mode", value: s.mode, inline: true },
       { name: "Quantity", value: s.quantity, inline: true },
       { name: "Price", value: s.price, inline: true },
+      // { name: "Size", value: s.size, inline: true },
+      // { name: "Color", value: s.color, inline: true },
       { name: "Item", value: s.item, inline: false }
     ],
     footer: { text: "ChudACO" },
     timestamp: new Date().toISOString()
   };
   if (s.image) embed.thumbnail = { url: s.image };
-  return {
-    username: name,
-    // Mentions only actually notify someone from the content field —
-    // text inside embeds renders as a styled mention but never pings.
-    content: mentionUserId ? `<@${mentionUserId}>` : "",
-    // Stays locked down by default (no @everyone/@here/role pings ever
-    // possible from this worker), and only ever opens up for the one
-    // specific, verified user ID resolved for this exact message —
-    // never a blanket allowance.
-    allowed_mentions: mentionUserId ? { parse: [], users: [mentionUserId] } : { parse: [] },
-    embeds: [embed]
-  };
+  return { username: name, content: "", allowed_mentions: { parse: [] }, embeds: [embed] };
 }
 function testPayload(name, isDecline) {
   return {
@@ -133,9 +114,12 @@ function testPayload(name, isDecline) {
       color: isDecline ? 15105570 : 5763719,
       fields: [
         { name: "Profile Name", value: "test-profile", inline: true },
-        { name: "Mode", value: "test-mode", inline: true },
+        // { name: "Site", value: "test-site", inline: true },
+        // { name: "Mode", value: "test-mode", inline: true },
         { name: "Quantity", value: "1", inline: true },
         { name: "Price", value: "$19.99", inline: true },
+        // { name: "Size", value: "N/A", inline: true },
+        // { name: "Color", value: "N/A", inline: true },
         { name: "Item", value: "Test Item Name", inline: false }
       ],
       thumbnail: { url: "https://target.scene7.com/is/image/Target/GUEST_40ed4d44-2adc-4cfe-a27b-0ce8b6e73cba?wid=1200&hei=1200&qlt=80" },
@@ -150,76 +134,4 @@ async function post(url, payload) {
     const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
     if (!r.ok) console.log("discord", r.status, await r.text());
   } catch (e) { console.log("discord error", String(e)); }
-}
-async function postToChudaco(env, s) {
-  if (!env.CHUDACO_INGEST_URL) return;
-  try {
-    const r = await fetch(env.CHUDACO_INGEST_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-worker-secret": env.WORKER_INGEST_SECRET || ""
-      },
-      body: JSON.stringify(s)
-    });
-    if (!r.ok) console.log("chudaco ingest", r.status, await r.text());
-  } catch (e) { console.log("chudaco ingest error", String(e)); }
-}
-
-// Pulls the Discord username segment out of "{username} - {label}".
-// Returns null on anything that doesn't look like the expected format —
-// that's the signal to skip the mention entirely, not throw.
-function parseUsernameFromProfile(profile) {
-  if (!profile || typeof profile !== "string") return null;
-  const idx = profile.indexOf(" - ");
-  if (idx <= 0) return null;
-  const username = profile.slice(0, idx).trim();
-  if (!username) return null;
-  return username;
-}
-
-// Resolves a Discord username to a user ID via the bot API, with an
-// optional KV cache (bind a KV namespace as MENTION_CACHE in the Worker's
-// settings to enable it — entirely optional, everything below degrades
-// gracefully to a live lookup every time if it's not bound). Returns null
-// on ANY failure or ambiguity — malformed profile string, API error, no
-// exact match found. Never throws.
-async function resolveMentionId(env, profile) {
-  const username = parseUsernameFromProfile(profile);
-  if (!username) return null;
-  if (!env.DISCORD_BOT_TOKEN || !env.DISCORD_GUILD_ID) return null;
-
-  const cacheKey = `mention:${username.toLowerCase()}`;
-  if (env.MENTION_CACHE) {
-    try {
-      const cached = await env.MENTION_CACHE.get(cacheKey);
-      if (cached) return cached;
-    } catch (e) { console.log("mention cache read error", String(e)); }
-  }
-
-  try {
-    const url = `https://discord.com/api/v10/guilds/${env.DISCORD_GUILD_ID}/members/search?query=${encodeURIComponent(username)}&limit=5`;
-    const r = await fetch(url, { headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` } });
-    if (!r.ok) {
-      console.log("member search failed", r.status, await r.text());
-      return null;
-    }
-    const results = await r.json();
-    // Guild member search is a PREFIX match, not exact — a search for
-    // "kai" would also match "kaizen99". Require an exact, case-sensitive
-    // username match before ever using a result, so this can't ping the
-    // wrong person off a partial match.
-    const match = Array.isArray(results) ? results.find(m => m?.user?.username === username) : null;
-    if (!match) return null;
-
-    const id = match.user.id;
-    if (env.MENTION_CACHE) {
-      try { await env.MENTION_CACHE.put(cacheKey, id, { expirationTtl: 86400 }); }
-      catch (e) { console.log("mention cache write error", String(e)); }
-    }
-    return id;
-  } catch (e) {
-    console.log("member search error", String(e));
-    return null;
-  }
 }

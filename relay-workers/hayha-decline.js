@@ -102,7 +102,7 @@ function declinePayload(name, s, reason, kind) {
     fields: [
       { name: "Profile Name", value: s.profile, inline: true },
       // { name: "Site", value: s.site, inline: true },
-      { name: "Mode", value: s.mode, inline: true },
+      // { name: "Mode", value: s.mode, inline: true },
       { name: "Quantity", value: s.quantity, inline: true },
       { name: "Price", value: s.price, inline: true },
       // { name: "Size", value: s.size, inline: true },
@@ -127,7 +127,7 @@ function testPayload(name, isDecline) {
       fields: [
         { name: "Profile Name", value: "test-profile", inline: true },
         // { name: "Site", value: "test-site", inline: true },
-        { name: "Mode", value: "test-mode", inline: true },
+        // { name: "Mode", value: "test-mode", inline: true },
         { name: "Quantity", value: "1", inline: true },
         { name: "Price", value: "$19.99", inline: true },
         // { name: "Size", value: "N/A", inline: true },

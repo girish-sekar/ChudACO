@@ -150,8 +150,6 @@ export default function AccountsPage() {
   const [cardByAccount, setCardByAccount] = useState<Record<string, CardOnFile | null>>({});
   const [paymentForms, setPaymentForms] = useState<Record<string, PaymentFormState>>({});
   const [isSubmittingPayment, setIsSubmittingPayment] = useState<Record<string, boolean>>({});
-  const [copyMessage, setCopyMessage] = useState<string | null>(null);
-  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
   const maxAccountsPerUser = data?.meta?.maxAccountsPerUser ?? 2;
   const currentAccounts = data?.meta?.currentAccounts ?? data?.data?.length ?? 0;
@@ -541,51 +539,6 @@ export default function AccountsPage() {
     }
   }
 
-  async function copyBotProfileName(value: string) {
-    await navigator.clipboard.writeText(value);
-    setCopyMessage(`Copied: ${value}`);
-    setTimeout(() => setCopyMessage(null), 1500);
-  }
-
-  async function regenerateBotProfileName(accountId: string) {
-    const shouldProceed = window.confirm(
-      "This changes your bot profile name. You'll need to manually update it inside your checkout bot too, or future checkouts from this account will stop matching until you do.",
-    );
-
-    if (!shouldProceed) {
-      return;
-    }
-
-    setRegeneratingId(accountId);
-
-    try {
-      const response = await fetch(`/api/aco-accounts/${accountId}/regenerate-bot-profile-name`, {
-        method: "POST",
-      });
-
-      const payload = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null;
-
-      if (!response.ok) {
-        setStatusBanner({
-          message: payload?.error ?? "Failed to regenerate bot profile name.",
-          tone: "error",
-        });
-        return;
-      }
-
-      setStatusBanner({
-        message: "Bot profile name regenerated. Update your checkout bot profile to match.",
-        tone: "success",
-      });
-
-      await mutate();
-    } finally {
-      setRegeneratingId(null);
-    }
-  }
-
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -925,8 +878,6 @@ export default function AccountsPage() {
         </div>
       ) : null}
 
-      {copyMessage ? <p className="text-xs text-[#4ADE80]">{copyMessage}</p> : null}
-
       {error ? <p className="text-sm text-[#FF5D5D]">Failed to load accounts.</p> : null}
       {!data ? <p className="text-sm text-[#9C9AAE]">Loading accounts...</p> : null}
 
@@ -981,32 +932,6 @@ export default function AccountsPage() {
                 <p className="text-xs text-[#605E72]">
                   Last sync: {account.lastSyncAt ? formatDate(account.lastSyncAt) : "never"}
                 </p>
-              </div>
-
-              <div className="mt-3 rounded-md border border-[#2C2D3A] bg-[#101014] p-3">
-                <p className="text-xs text-[#9C9AAE]">Bot profile name</p>
-                <p className="mt-1 font-mono text-sm text-[#F2F1F6]">{account.botProfileName}</p>
-                <p className="mt-2 text-xs text-[#605E72]">
-                  Use this exact name when creating this account&apos;s profile in your checkout bot - it&apos;s
-                  how successful checkouts get matched back to your account.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void copyBotProfileName(account.botProfileName)}
-                    className="rounded-md border border-[#2C2D3A] px-3 py-1.5 text-xs text-[#9C9AAE] hover:text-[#F2F1F6]"
-                  >
-                    Copy
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void regenerateBotProfileName(account.id)}
-                    disabled={regeneratingId === account.id}
-                    className="rounded-md border border-[#5A2323] px-3 py-1.5 text-xs text-[#FFB2B2] hover:text-[#FFD1D1] disabled:opacity-60"
-                  >
-                    {regeneratingId === account.id ? "Regenerating..." : "Regenerate"}
-                  </button>
-                </div>
               </div>
 
               <div className="mt-4 flex flex-wrap gap-3">

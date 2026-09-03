@@ -12,5 +12,39 @@ services:
     volumes:
       - chudaco-postgres-data:/var/lib/postgresql/data
 
+  web:
+    image: node:20-bookworm
+    container_name: chudaco-web
+    working_dir: /workspace
+    env_file:
+      - .env
+    environment:
+      PORT: 3001
+    command: >
+      sh -lc "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @chudaco/db build && pnpm --filter web dev"
+    ports:
+      - "3001:3001"
+    volumes:
+      - .:/workspace
+      - /workspace/node_modules
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  worker:
+    image: node:20-bookworm
+    container_name: chudaco-worker
+    working_dir: /workspace
+    env_file:
+      - .env
+    command: >
+      sh -lc "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @chudaco/db build && pnpm --filter worker dev"
+    volumes:
+      - .:/workspace
+      - /workspace/node_modules
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
 volumes:
   chudaco-postgres-data:
