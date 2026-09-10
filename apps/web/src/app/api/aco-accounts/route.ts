@@ -79,6 +79,7 @@ type SanitizedAcoAccount = {
 };
 
 const DEFAULT_MAX_ACCOUNTS_PER_USER = 2;
+const PREMIUM_MAX_ACCOUNTS_PER_USER = 10;
 
 class MaxAccountsPerUserError extends Error {
   constructor(public readonly maxAccountsPerUser: number) {
@@ -87,14 +88,21 @@ class MaxAccountsPerUserError extends Error {
   }
 }
 
-function getMaxAccountsPerUser(): number {
-  const raw = process.env.MAX_ACCOUNTS_PER_USER?.trim();
-  if (!raw) {
-    return DEFAULT_MAX_ACCOUNTS_PER_USER;
-  }
+function getPremiumUserIds(): Set<string> {
+  const raw = process.env.PREMIUM_USER_IDS?.trim() ?? "";
+  return new Set(
+    raw
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0),
+  );
+}
 
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
+function getMaxAccountsPerUser(discordId?: string): number {
+  const raw = process.env.MAX_ACCOUNTS_PER_USER?.trim();
+  const defaultLimit = raw ? Number.parseInt(raw, 10) : DEFAULT_MAX_ACCOUNTS_PER_USER;
+
+  if (!Number.isFinite(defaultLimit) || defaultLimit < 1) {
     console.warn("Invalid MAX_ACCOUNTS_PER_USER value, falling back to default", {
       value: raw,
       fallback: DEFAULT_MAX_ACCOUNTS_PER_USER,
@@ -102,7 +110,11 @@ function getMaxAccountsPerUser(): number {
     return DEFAULT_MAX_ACCOUNTS_PER_USER;
   }
 
-  return parsed;
+  if (discordId && getPremiumUserIds().has(discordId)) {
+    return Math.max(defaultLimit, PREMIUM_MAX_ACCOUNTS_PER_USER);
+  }
+
+  return defaultLimit;
 }
 
 function sanitizeAcoAccount(account: {
@@ -179,7 +191,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const maxAccountsPerUser = getMaxAccountsPerUser();
+  const maxAccountsPerUser = getMaxAccountsPerUser(authContext.discordId);
 
   const accounts = await prisma.acoAccount.findMany({
     where: { userId: authContext.userId },
@@ -240,7 +252,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const maxAccountsPerUser = getMaxAccountsPerUser();
+  const maxAccountsPerUser = getMaxAccountsPerUser(authContext.discordId);
 
   const body = await request.json().catch(() => null);
   const parsed = createAcoAccountSchema.safeParse(body);

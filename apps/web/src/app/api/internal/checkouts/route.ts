@@ -28,6 +28,16 @@ function parsePriceToNumber(raw: string): number | null {
   return parsed;
 }
 
+function matchesPokemonCenterEtbCheckout(site: string, item: string): boolean {
+  const normalizedSite = site.toLowerCase();
+  const normalizedItem = item.toLowerCase();
+
+  const isPokemonCenter = normalizedSite.includes("pokemon center") || normalizedSite.includes("pokemoncenter");
+  const looksLikeEtb = /elite trainer box|etb/.test(normalizedItem);
+
+  return isPokemonCenter && looksLikeEtb;
+}
+
 async function generateTicketCode(): Promise<string> {
   for (let i = 0; i < 20; i += 1) {
     const digits = Math.floor(10000 + Math.random() * 90000);
@@ -152,7 +162,11 @@ export async function POST(request: Request) {
     orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
   });
 
-  const matchedRule = pricingRules.find((rule) => {
+  const pkcEtbRule = matchesPokemonCenterEtbCheckout(data.site, data.item)
+    ? pricingRules.find((rule) => rule.category === "1x Misc PKC ETBs")
+    : null;
+
+  const matchedRule = pkcEtbRule ?? pricingRules.find((rule) => {
     const min = rule.minPrice !== null ? Number(rule.minPrice) : 0;
     const max = rule.maxPrice !== null ? Number(rule.maxPrice) : null;
 

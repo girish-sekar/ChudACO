@@ -42,6 +42,8 @@ type FormState = {
   shippingName: string;
   shippingPhone: string;
   shippingAddr: string;
+  shippingAddr2: string;
+  shippingAddr3: string;
   shippingCity: string;
   shippingState: string;
   shippingZip: string;
@@ -49,6 +51,8 @@ type FormState = {
   billingName: string;
   billingPhone: string;
   billingAddr: string;
+  billingAddr2: string;
+  billingAddr3: string;
   billingCity: string;
   billingState: string;
   billingZip: string;
@@ -96,6 +100,8 @@ const defaultFormState: FormState = {
   shippingName: "",
   shippingPhone: "",
   shippingAddr: "",
+  shippingAddr2: "",
+  shippingAddr3: "",
   shippingCity: "",
   shippingState: "",
   shippingZip: "",
@@ -103,6 +109,8 @@ const defaultFormState: FormState = {
   billingName: "",
   billingPhone: "",
   billingAddr: "",
+  billingAddr2: "",
+  billingAddr3: "",
   billingCity: "",
   billingState: "",
   billingZip: "",
@@ -134,6 +142,20 @@ function normalizeEmailProvider(value: string | null | undefined): keyof typeof 
 
 function isManualImapHostProvider(value: string): boolean {
   return value === "Other" || value === "";
+}
+
+function splitAddressLines(value: string | null | undefined) {
+  const normalized = (value ?? "").replace(/\r\n/g, "\n").trim();
+  if (!normalized) {
+    return { line1: "", line2: "", line3: "" };
+  }
+
+  const lines = normalized.split("\n").map((line) => line.trim());
+  return {
+    line1: lines[0] ?? "",
+    line2: lines[1] ?? "",
+    line3: lines.slice(2).join("\n"),
+  };
 }
 
 export default function AccountsPage() {
@@ -235,14 +257,18 @@ export default function AccountsPage() {
             ],
       shippingName: account.shippingName ?? "",
       shippingPhone: account.shippingPhone ?? "",
-      shippingAddr: account.shippingAddr ?? "",
+      shippingAddr: splitAddressLines(account.shippingAddr).line1,
+      shippingAddr2: splitAddressLines(account.shippingAddr).line2,
+      shippingAddr3: splitAddressLines(account.shippingAddr).line3,
       shippingCity: account.shippingCity ?? "",
       shippingState: account.shippingState ?? "",
       shippingZip: account.shippingZip ?? "",
       billingSameAsShipping: account.billingSameAsShipping,
       billingName: account.billingName ?? "",
       billingPhone: account.billingPhone ?? "",
-      billingAddr: account.billingAddr ?? "",
+      billingAddr: splitAddressLines(account.billingAddr).line1,
+      billingAddr2: splitAddressLines(account.billingAddr).line2,
+      billingAddr3: splitAddressLines(account.billingAddr).line3,
       billingCity: account.billingCity ?? "",
       billingState: account.billingState ?? "",
       billingZip: account.billingZip ?? "",
@@ -319,6 +345,14 @@ export default function AccountsPage() {
     }
 
     const firstRetailLogin = cleanedRetailerLogins[0];
+    const shippingAddr = [formState.shippingAddr, formState.shippingAddr2, formState.shippingAddr3]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join("\n");
+    const billingAddr = [formState.billingAddr, formState.billingAddr2, formState.billingAddr3]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join("\n");
 
     const payload = {
       label: formState.label,
@@ -330,14 +364,14 @@ export default function AccountsPage() {
       retailerLogins: cleanedRetailerLogins,
       shippingName: formState.shippingName || null,
       shippingPhone: formState.shippingPhone || null,
-      shippingAddr: formState.shippingAddr || null,
+      shippingAddr: shippingAddr || null,
       shippingCity: formState.shippingCity || null,
       shippingState: formState.shippingState || null,
       shippingZip: formState.shippingZip || null,
       billingSameAsShipping: formState.billingSameAsShipping,
       billingName: formState.billingSameAsShipping ? null : formState.billingName || null,
       billingPhone: formState.billingSameAsShipping ? null : formState.billingPhone || null,
-      billingAddr: formState.billingSameAsShipping ? null : formState.billingAddr || null,
+      billingAddr: formState.billingSameAsShipping ? null : billingAddr || null,
       billingCity: formState.billingSameAsShipping ? null : formState.billingCity || null,
       billingState: formState.billingSameAsShipping ? null : formState.billingState || null,
       billingZip: formState.billingSameAsShipping ? null : formState.billingZip || null,
@@ -692,7 +726,23 @@ export default function AccountsPage() {
             onChange={(event) =>
               setFormState((current) => ({ ...current, shippingAddr: event.target.value }))
             }
-            placeholder="Shipping address"
+            placeholder="Shipping address line 1"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
+          />
+          <input
+            value={formState.shippingAddr2}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, shippingAddr2: event.target.value }))
+            }
+            placeholder="Shipping address line 2 (optional)"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
+          />
+          <input
+            value={formState.shippingAddr3}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, shippingAddr3: event.target.value }))
+            }
+            placeholder="Shipping address line 3 (optional)"
             className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
           />
           <input
@@ -755,7 +805,23 @@ export default function AccountsPage() {
                 onChange={(event) =>
                   setFormState((current) => ({ ...current, billingAddr: event.target.value }))
                 }
-                placeholder="Billing address"
+                placeholder="Billing address line 1"
+                className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
+              />
+              <input
+                value={formState.billingAddr2}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, billingAddr2: event.target.value }))
+                }
+                placeholder="Billing address line 2 (optional)"
+                className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
+              />
+              <input
+                value={formState.billingAddr3}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, billingAddr3: event.target.value }))
+                }
+                placeholder="Billing address line 3 (optional)"
                 className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
               />
               <input

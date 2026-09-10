@@ -28,6 +28,16 @@ function matchesAccountId(raw: string, accountId: string): boolean {
   }
 }
 
+function splitAddressLines(value: string | null | undefined) {
+  const normalized = (value ?? "").replace(/\r\n/g, "\n").trim();
+  if (!normalized) {
+    return ["", "", ""];
+  }
+
+  const lines = normalized.split("\n").map((line) => line.trim());
+  return [lines[0] ?? "", lines[1] ?? "", lines.slice(2).join(" ")];
+}
+
 async function getSheetsClient() {
   const { spreadsheetId, sheetName, keyPath } = getGoogleSheetsConfig();
   const auth = new google.auth.GoogleAuth({
@@ -245,9 +255,8 @@ export async function upsertGoogleSheetShippingFields(input: ShippingSyncInput) 
     const billingPhone = input.billingSameAsShipping
       ? input.shippingPhone ?? ""
       : input.billingPhone ?? "";
-    const billingAddr = input.billingSameAsShipping
-      ? input.shippingAddr ?? ""
-      : input.billingAddr ?? "";
+    const shippingAddrParts = splitAddressLines(input.shippingAddr);
+    const billingAddrParts = splitAddressLines(input.billingSameAsShipping ? input.shippingAddr : input.billingAddr);
     const billingCity = input.billingSameAsShipping
       ? input.shippingCity ?? ""
       : input.billingCity ?? "";
@@ -258,20 +267,24 @@ export async function upsertGoogleSheetShippingFields(input: ShippingSyncInput) 
       ? input.shippingZip ?? ""
       : input.billingZip ?? "";
 
-    baseRow[0] = input.loginEmail ?? input.email;
+    baseRow[0] = input.email;
     baseRow[1] = input.botProfileName;
     baseRow[2] = input.onlyOneCheckout ? "TRUE" : "FALSE";
     baseRow[9] = input.billingSameAsShipping ? "TRUE" : "FALSE";
     baseRow[10] = input.shippingName ?? "";
     baseRow[11] = input.shippingPhone ?? "";
-    baseRow[12] = input.shippingAddr ?? "";
+    baseRow[12] = shippingAddrParts[0];
+    baseRow[13] = shippingAddrParts[1];
+    baseRow[14] = shippingAddrParts[2];
     baseRow[15] = input.shippingZip ?? "";
     baseRow[16] = input.shippingCity ?? "";
     baseRow[17] = input.shippingState ?? "";
     baseRow[18] = "US";
     baseRow[19] = billingName;
     baseRow[20] = billingPhone;
-    baseRow[21] = billingAddr;
+    baseRow[21] = billingAddrParts[0];
+    baseRow[22] = billingAddrParts[1];
+    baseRow[23] = billingAddrParts[2];
     baseRow[24] = billingZip;
     baseRow[25] = billingCity;
     baseRow[26] = billingState;

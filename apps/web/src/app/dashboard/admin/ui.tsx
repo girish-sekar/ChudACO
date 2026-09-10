@@ -219,6 +219,37 @@ export default function AdminDashboard() {
     }
   }
 
+  async function exportPokemonCenterJson() {
+    setExportError(null);
+
+    try {
+      const response = await fetch("/api/admin/export/pokemon-center-json", { credentials: "include" });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string; detail?: string }
+          | null;
+        const message = payload?.detail
+          ? `${payload?.error ?? "Export failed"}: ${payload.detail}`
+          : payload?.error ?? "Export failed";
+        setExportError(message);
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "pokemon-center-accounts.json";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError("Failed to download Pokemon Center accounts JSON.");
+    }
+  }
+
   function startEditPricingRule(rule: PricingRule) {
     setEditingPricingRuleId(rule.id);
     setPricingError(null);
@@ -340,6 +371,13 @@ export default function AdminDashboard() {
             className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
           >
             {isExportingTxt ? "Exporting..." : "Export Accounts (.txt)"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void exportPokemonCenterJson()}
+            className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
+          >
+            Export PKC Accounts (.json)
           </button>
         </div>
       </header>

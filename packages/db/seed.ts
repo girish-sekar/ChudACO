@@ -67,6 +67,16 @@ async function main() {
         sortOrder: 2,
       },
       {
+        category: "1x Misc PKC ETBs",
+        priceRangeLabel: "PKC ETBs",
+        minPrice: "0.00",
+        maxPrice: "999.00",
+        feeType: FeeType.flat,
+        feeFlat: "9.00",
+        feePercent: null,
+        sortOrder: 3,
+      },
+      {
         category: "Elite Trainer Boxes",
         priceRangeLabel: "$40–$70",
         minPrice: "40.00",
@@ -74,7 +84,7 @@ async function main() {
         feeType: FeeType.flat,
         feeFlat: "8.00",
         feePercent: null,
-        sortOrder: 3,
+        sortOrder: 4,
       },
       {
         category: "Booster Boxes/Cases",
@@ -84,7 +94,7 @@ async function main() {
         feeType: FeeType.percent,
         feeFlat: null,
         feePercent: "12.00",
-        sortOrder: 4,
+        sortOrder: 5,
       },
       {
         category: "Special collections & tins",
@@ -94,7 +104,7 @@ async function main() {
         feeType: FeeType.flat,
         feeFlat: "6.00",
         feePercent: null,
-        sortOrder: 5,
+        sortOrder: 6,
       },
     ],
   });
