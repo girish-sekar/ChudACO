@@ -63,9 +63,14 @@ function blob(b) {
 function isTest(b) { return /test webhook|testing|webhook test|ping/.test(blob(b)); }
 function isHayhaSuccess(b) { return /successful checkout|way to go|checked out|checkout success|\bsuccess\b/.test(blob(b)); }
 
+function normalizeProfileName(profile) {
+  if (typeof profile !== "string") return profile;
+  return profile.trim().replace(/^\|\|+|\|\|+$/g, "").trim();
+}
+
 function buildTestCheckoutPayload() {
   return {
-    profile: "girishsekar8392 - ACO #1",
+    profile: "||girishsekar8392 - ACO #2||",
     site: "test-site",
     mode: "test-mode",
     item: "Test Item Name",
@@ -104,8 +109,9 @@ function sanitize(b) {
   const item = pick(b, m, ["item", "product", "title"], ["item", "product"], "unknown");
   const qtyRaw = pick(b, m, ["quantity", "qty"], ["quantity"], "0");
   const qty = Number.isFinite(parseInt(qtyRaw, 10)) ? String(parseInt(qtyRaw, 10)) : "0";
+  const profile = normalizeProfileName(pick(b, m, ["profileName", "profile_name", "profile"], ["profile name", "profile"], "unknown"));
   return {
-    profile: pick(b, m, ["profileName", "profile_name", "profile"], ["profile name", "profile"], "unknown"),
+    profile,
     site: pick(b, m, ["site", "store", "domain"], ["site"], "unknown"),
     mode: pick(b, m, ["mode"], ["mode"], "unknown"),
     item,
@@ -192,9 +198,10 @@ async function postToChudaco(env, s) {
 // that's the signal to skip the mention entirely, not throw.
 function parseUsernameFromProfile(profile) {
   if (!profile || typeof profile !== "string") return null;
-  const idx = profile.indexOf(" - ");
+  const normalized = normalizeProfileName(profile);
+  const idx = normalized.indexOf(" - ");
   if (idx <= 0) return null;
-  const username = profile.slice(0, idx).trim();
+  const username = normalized.slice(0, idx).trim();
   if (!username) return null;
   return username;
 }

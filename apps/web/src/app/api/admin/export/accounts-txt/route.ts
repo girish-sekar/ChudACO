@@ -4,9 +4,40 @@ import { z } from "zod";
 import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
 
 const querySchema = z.object({
+  category: z.string().trim().toLowerCase().optional(),
   retailer: z.string().trim().min(1).optional(),
   retailers: z.string().trim().min(1).optional(),
 });
+
+const HAYHA_RETAILERS = ["Target", "Bandai"];
+const STELLAR_RETAILERS = [
+  "Pokemon Center",
+  "Pokémon Center",
+  "PKC",
+  "PokemonCenter",
+  "Sam's Club",
+  "Sams Club",
+  "Costco",
+];
+
+function isHayhaRetailer(retailer: string): boolean {
+  const norm = retailer.trim().toLowerCase();
+  return norm === "target" || norm === "bandai";
+}
+
+function isStellarRetailer(retailer: string): boolean {
+  const norm = retailer.trim().toLowerCase();
+  return (
+    norm === "pokemon center" ||
+    norm === "pokémon center" ||
+    norm === "pkc" ||
+    norm === "pokemoncenter" ||
+    norm === "sam's club" ||
+    norm === "sams club" ||
+    norm === "sam club" ||
+    norm === "costco"
+  );
+}
 
 function parseEncryptedValue(value: string | null, iv: string | null): string | null {
   if (!value || !iv) {
@@ -72,6 +103,7 @@ export async function GET(request: NextRequest) {
   }
 
   const parsed = querySchema.safeParse({
+    category: request.nextUrl.searchParams.get("category") ?? undefined,
     retailer: request.nextUrl.searchParams.get("retailer") ?? undefined,
     retailers: request.nextUrl.searchParams.get("retailers") ?? undefined,
   });
@@ -83,17 +115,43 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const retailerFilters = parseRetailerFilters(parsed.data.retailer, parsed.data.retailers);
+  const userFilters = parseRetailerFilters(parsed.data.retailer, parsed.data.retailers);
+  const category = parsed.data.category;
+
+  let effectiveRetailerFilters: string[] = [];
+  let isCategoryFilter = false;
+
+  if (category === "hayha") {
+    isCategoryFilter = true;
+    effectiveRetailerFilters = userFilters.length > 0 ? userFilters.filter(isHayhaRetailer) : HAYHA_RETAILERS;
+  } else if (category === "stellar") {
+    isCategoryFilter = true;
+    effectiveRetailerFilters = userFilters.length > 0 ? userFilters.filter(isStellarRetailer) : STELLAR_RETAILERS;
+  } else {
+    effectiveRetailerFilters = userFilters;
+  }
+
+  // If a category was requested and explicit user filters had 0 intersection, return empty
+  if (isCategoryFilter && userFilters.length > 0 && effectiveRetailerFilters.length === 0) {
+    const filename = category === "hayha" ? "hayha-accounts.txt" : "stellar-accounts.txt";
+    return new NextResponse("", {
+      status: 200,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Disposition": `attachment; filename=${filename}`,
+      },
+    });
+  }
 
   const where =
-    retailerFilters.length === 0
+    effectiveRetailerFilters.length === 0
       ? undefined
       : {
           OR: [
-            ...retailerFilters.map((retailer) => ({
+            ...effectiveRetailerFilters.map((retailer) => ({
               retailer: { equals: retailer, mode: "insensitive" as const },
             })),
-            ...retailerFilters.map((retailer) => ({
+            ...effectiveRetailerFilters.map((retailer) => ({
               retailerLogins: {
                 some: {
                   retailer: { equals: retailer, mode: "insensitive" as const },
@@ -150,11 +208,25 @@ export async function GET(request: NextRequest) {
 
       return entries
         .filter((entry) => {
-          if (retailerFilters.length === 0) {
+          if (category === "hayha") {
+            return (
+              isHayhaRetailer(entry.retailer) &&
+              (effectiveRetailerFilters.length === 0 ||
+                effectiveRetailerFilters.some((r) => r.toLowerCase() === entry.retailer.toLowerCase()))
+            );
+          }
+          if (category === "stellar") {
+            return (
+              isStellarRetailer(entry.retailer) &&
+              (effectiveRetailerFilters.length === 0 ||
+                effectiveRetailerFilters.some((r) => r.toLowerCase() === entry.retailer.toLowerCase()))
+            );
+          }
+          if (effectiveRetailerFilters.length === 0) {
             return true;
           }
 
-          return retailerFilters.some(
+          return effectiveRetailerFilters.some(
             (retailer) => retailer.toLowerCase() === entry.retailer.toLowerCase(),
           );
         })
@@ -173,11 +245,18 @@ export async function GET(request: NextRequest) {
     })
     .filter((line): line is string => line.length > 0);
 
+  const filename =
+    category === "hayha"
+      ? "hayha-accounts.txt"
+      : category === "stellar"
+        ? "stellar-accounts.txt"
+        : "admin-account-export.txt";
+
   return new NextResponse(lines.join("\n"), {
     status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Content-Disposition": "attachment; filename=admin-account-export.txt",
+      "Content-Disposition": `attachment; filename=${filename}`,
     },
   });
 }

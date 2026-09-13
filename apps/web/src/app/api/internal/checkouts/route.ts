@@ -28,6 +28,10 @@ function parsePriceToNumber(raw: string): number | null {
   return parsed;
 }
 
+function normalizeProfileName(profile: string): string {
+  return profile.trim().replace(/^\|\|+|\|\|+$/g, "").trim();
+}
+
 function matchesPokemonCenterEtbCheckout(site: string, item: string): boolean {
   const normalizedSite = site.toLowerCase();
   const normalizedItem = item.toLowerCase();
@@ -113,9 +117,10 @@ export async function POST(request: Request) {
   }
 
   const normalizedPrice = parsedPrice.toFixed(2);
+  const normalizedProfile = normalizeProfileName(data.profile);
 
   const account = await prisma.acoAccount.findUnique({
-    where: { botProfileName: data.profile },
+    where: { botProfileName: normalizedProfile },
     select: {
       id: true,
       userId: true,
@@ -126,6 +131,7 @@ export async function POST(request: Request) {
   if (!account) {
     console.error("Worker checkout profile did not match any ACO account", {
       profile: data.profile,
+      normalizedProfile,
       site: data.site,
       mode: data.mode,
     });

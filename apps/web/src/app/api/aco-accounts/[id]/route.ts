@@ -218,7 +218,14 @@ async function handleUpdate(request: Request, context: RouteParams) {
     });
 
     const mergedRetailerLogins = parsed.data.retailerLogins.map((entry, index) => {
-        const existing = existingLogins[index];
+        // Try matching existing login by retailer first, or fallback to index
+        const existing =
+          existingLogins.find(
+            (el) => el.retailer.toLowerCase() === entry.retailer.toLowerCase() && el.loginEmail.toLowerCase() === entry.loginEmail.toLowerCase()
+          ) ??
+          existingLogins.find((el) => el.retailer.toLowerCase() === entry.retailer.toLowerCase()) ??
+          existingLogins[index];
+
         let encryptedLoginPassword = existing?.encryptedLoginPassword;
         let loginPasswordIv = existing?.loginPasswordIv;
 

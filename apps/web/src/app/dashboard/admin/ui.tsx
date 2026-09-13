@@ -76,7 +76,7 @@ export default function AdminDashboard() {
   const [status, setStatus] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [selectedRetailers, setSelectedRetailers] = useState<string[]>([]);
-  const [isExportingTxt, setIsExportingTxt] = useState(false);
+  const [exportingCategory, setExportingCategory] = useState<"hayha" | "stellar" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [pricingForm, setPricingForm] = useState<PricingRuleFormState>(defaultPricingRuleForm);
   const [pricingStatus, setPricingStatus] = useState<string | null>(null);
@@ -128,17 +128,24 @@ export default function AdminDashboard() {
 
   const retailerOptions = useMemo(() => {
     const rows = retailerOptionsData?.data ?? [];
-    return Array.from(
-      new Set(
-        rows
-          .flatMap((row) => {
-            const primary = (row.retailer ?? row.acoRetailer ?? "").trim();
-            const additional = (row.acoRetailerLogins ?? []).map((value) => value.trim());
-            return [primary, ...additional];
-          })
-          .filter((value) => value.length > 0),
-      ),
-    );
+    const rawOptions = rows.flatMap((row) => {
+      const primary = (row.retailer ?? row.acoRetailer ?? "").trim();
+      const additional = (row.acoRetailerLogins ?? []).map((value) => value.trim());
+      return [primary, ...additional];
+    });
+
+    // Consolidate variations like "PKC", "Pokémon Center", "PokemonCenter" into "Pokemon Center"
+    const normalized = rawOptions
+      .map((val) => {
+        const lower = val.toLowerCase();
+        if (lower === "pkc" || lower === "pokémon center" || lower === "pokemoncenter") {
+          return "Pokemon Center";
+        }
+        return val;
+      })
+      .filter((value) => value.length > 0);
+
+    return Array.from(new Set(normalized));
   }, [retailerOptionsData]);
 
   async function confirmBillingEntry(id: string) {
@@ -179,18 +186,19 @@ export default function AdminDashboard() {
     );
   }
 
-  async function exportAccountsTxt() {
-    setIsExportingTxt(true);
+  async function exportAccountsTxt(category: "hayha" | "stellar") {
+    setExportingCategory(category);
     setExportError(null);
 
     try {
       const params = new URLSearchParams();
+      params.set("category", category);
       if (selectedRetailers.length > 0) {
         params.set("retailers", selectedRetailers.join(","));
       }
 
       const response = await fetch(
-        `/api/admin/export/accounts-txt${params.toString() ? `?${params.toString()}` : ""}`,
+        `/api/admin/export/accounts-txt?${params.toString()}`,
         { credentials: "include" },
       );
 
@@ -209,21 +217,29 @@ export default function AdminDashboard() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = "admin-account-export.txt";
+      anchor.download = category === "hayha" ? "hayha-accounts.txt" : "stellar-accounts.txt";
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
     } finally {
-      setIsExportingTxt(false);
+      setExportingCategory(null);
     }
   }
 
-  async function exportPokemonCenterJson() {
+  async function exportStellarJson() {
     setExportError(null);
 
     try {
-      const response = await fetch("/api/admin/export/pokemon-center-json", { credentials: "include" });
+      const params = new URLSearchParams();
+      if (selectedRetailers.length > 0) {
+        params.set("retailers", selectedRetailers.join(","));
+      }
+
+      const response = await fetch(
+        `/api/admin/export/pokemon-center-json${params.toString() ? `?${params.toString()}` : ""}`,
+        { credentials: "include" },
+      );
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as
@@ -240,13 +256,52 @@ export default function AdminDashboard() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = "pokemon-center-accounts.json";
+      anchor.download = "stellar-accounts.json";
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch {
-      setExportError("Failed to download Pokemon Center accounts JSON.");
+      setExportError("Failed to download Stellar accounts JSON.");
+    }
+  }
+
+  async function exportHayhaJson() {
+    setExportError(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (selectedRetailers.length > 0) {
+        params.set("retailers", selectedRetailers.join(","));
+      }
+
+      const response = await fetch(
+        `/api/admin/export/target-json${params.toString() ? `?${params.toString()}` : ""}`,
+        { credentials: "include" },
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string; detail?: string }
+          | null;
+        const message = payload?.detail
+          ? `${payload?.error ?? "Export failed"}: ${payload.detail}`
+          : payload?.error ?? "Export failed";
+        setExportError(message);
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "hayha-accounts.json";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError("Failed to download Hayha accounts JSON.");
     }
   }
 
@@ -366,18 +421,33 @@ export default function AdminDashboard() {
           </button>
           <button
             type="button"
-            onClick={exportAccountsTxt}
-            disabled={isExportingTxt}
+            onClick={() => void exportAccountsTxt("hayha")}
+            disabled={exportingCategory !== null}
             className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
           >
-            {isExportingTxt ? "Exporting..." : "Export Accounts (.txt)"}
+            {exportingCategory === "hayha" ? "Exporting Hayha..." : "Export Hayha (.txt)"}
           </button>
           <button
             type="button"
-            onClick={() => void exportPokemonCenterJson()}
+            onClick={() => void exportAccountsTxt("stellar")}
+            disabled={exportingCategory !== null}
+            className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
+          >
+            {exportingCategory === "stellar" ? "Exporting Stellar..." : "Export Stellar (.txt)"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void exportHayhaJson()}
             className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
           >
-            Export PKC Accounts (.json)
+            Export Hayha Accounts (.json)
+          </button>
+          <button
+            type="button"
+            onClick={() => void exportStellarJson()}
+            className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
+          >
+            Export Stellar Accounts (.json)
           </button>
         </div>
       </header>
@@ -409,7 +479,7 @@ export default function AdminDashboard() {
         </div>
         <p className="mt-2 text-xs text-[#605E72]">
           {selectedRetailers.length === 0
-            ? "No retailer selected: export will include all retailers."
+            ? "No retailer selected: Hayha exports Target & Bandai; Stellar exports Pokemon Center, Sam's Club & Costco."
             : `Selected retailers: ${selectedRetailers.join(", ")}`}
         </p>
         {exportError ? <p className="mt-2 text-xs text-[#FF5D5D]">{exportError}</p> : null}

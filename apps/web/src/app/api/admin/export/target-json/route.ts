@@ -10,28 +10,11 @@ const querySchema = z.object({
   retailers: z.string().trim().min(1).optional(),
 });
 
-const STELLAR_RETAILERS = [
-  "Pokemon Center",
-  "Pokémon Center",
-  "PKC",
-  "PokemonCenter",
-  "Sam's Club",
-  "Sams Club",
-  "Costco",
-];
+const HAYHA_RETAILERS = ["Target", "Bandai"];
 
-function isStellarRetailer(retailer: string): boolean {
+function isHayhaRetailer(retailer: string): boolean {
   const norm = retailer.trim().toLowerCase();
-  return (
-    norm === "pokemon center" ||
-    norm === "pokémon center" ||
-    norm === "pkc" ||
-    norm === "pokemoncenter" ||
-    norm === "sam's club" ||
-    norm === "sams club" ||
-    norm === "sam club" ||
-    norm === "costco"
-  );
+  return norm === "target" || norm === "bandai";
 }
 
 function parseRetailerFilters(single?: string, multiple?: string): string[] {
@@ -69,7 +52,11 @@ function splitAddress(value: string | null | undefined) {
     return { address: "", address2: "" };
   }
 
-  const lines = normalized.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
   return {
     address: lines[0] ?? "",
     address2: lines.slice(1).join(" "),
@@ -87,7 +74,11 @@ function formatExpYear(value: string | number | null | undefined) {
   const year = normalized.replace(/[^0-9]/g, "");
   if (!year) return "";
 
-  return year.length >= 4 ? year.slice(-2) : year;
+  if (year.length === 2) {
+    return `20${year}`;
+  }
+
+  return year.length >= 4 ? year.slice(0, 4) : year;
 }
 
 function formatExpMonth(value: string | number | null | undefined) {
@@ -98,7 +89,9 @@ function formatExpMonth(value: string | number | null | undefined) {
   if (!month) return "";
 
   const numeric = Number(month);
-  if (!Number.isFinite(numeric) || numeric < 1 || numeric > 12) return month.padStart(2, "0");
+  if (!Number.isFinite(numeric) || numeric < 1 || numeric > 12) {
+    return month.padStart(2, "0");
+  }
 
   return String(numeric).padStart(2, "0");
 }
@@ -164,25 +157,12 @@ function formatState(value: string | null | undefined) {
   const directMatch = stateAbbreviations[normalized];
   if (directMatch) return directMatch;
 
-  const lowerCaseMatch = Object.entries(stateAbbreviations).find(([name]) => name.toLowerCase() === normalized.toLowerCase());
+  const lowerCaseMatch = Object.entries(stateAbbreviations).find(
+    ([name]) => name.toLowerCase() === normalized.toLowerCase(),
+  );
   if (lowerCaseMatch) return lowerCaseMatch[1];
 
   return normalized.toUpperCase();
-}
-
-function buildAddressBlock(value: string | null | undefined, city: string | null | undefined, state: string | null | undefined, zip: string | null | undefined) {
-  const { address, address2 } = splitAddress(value);
-
-  return {
-    firstName: "",
-    lastName: "",
-    country: "US",
-    address,
-    address2,
-    state: state ?? "",
-    city: city ?? "",
-    zipcode: zip ?? "",
-  };
 }
 
 async function getGoogleSheetRows(): Promise<string[][]> {
@@ -243,14 +223,14 @@ export async function GET(request: NextRequest) {
 
   const userFilters = parseRetailerFilters(parsed.data.retailer, parsed.data.retailers);
   const effectiveRetailerFilters =
-    userFilters.length > 0 ? userFilters.filter(isStellarRetailer) : STELLAR_RETAILERS;
+    userFilters.length > 0 ? userFilters.filter(isHayhaRetailer) : HAYHA_RETAILERS;
 
   if (userFilters.length > 0 && effectiveRetailerFilters.length === 0) {
     return new NextResponse("[]", {
       status: 200,
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition": "attachment; filename=stellar-accounts.json",
+        "Content-Disposition": "attachment; filename=hayha-accounts.json",
       },
     });
   }
@@ -278,6 +258,7 @@ export async function GET(request: NextRequest) {
   });
 
   const sheetRows = await getGoogleSheetRows();
+
   const payload = accounts
     .filter((account) => {
       const logins = account.retailerLogins.length > 0
@@ -290,54 +271,41 @@ export async function GET(request: NextRequest) {
     .map((account) => {
       const matchingRow = findMatchingSheetRow(sheetRows, account);
       const shippingName = splitName(account.shippingName ?? account.billingName ?? account.botProfileName ?? "");
-      const billingName = splitName(account.billingSameAsShipping ? account.shippingName ?? account.billingName : account.billingName ?? account.shippingName ?? "");
-      const shippingAddress = buildAddressBlock(account.shippingAddr, account.shippingCity, account.shippingState, account.shippingZip);
-      const billingAddress = buildAddressBlock(
-        account.billingSameAsShipping ? account.shippingAddr ?? account.billingAddr : account.billingAddr,
-        account.billingSameAsShipping ? account.shippingCity ?? account.billingCity : account.billingCity,
-        account.billingSameAsShipping ? account.shippingState ?? account.billingState : account.billingState,
-        account.billingSameAsShipping ? account.shippingZip ?? account.billingZip : account.billingZip,
-      );
+      const address = splitAddress(account.shippingAddr);
 
       const sheetCardNumber = matchingRow?.[5] ?? "";
       const sheetCvv = matchingRow?.[8] ?? "";
-      const sheetCardType = matchingRow?.[4] ?? account.cardOnFile?.cardBrand ?? "";
       const sheetCardholderName = matchingRow?.[3] ?? account.cardOnFile?.cardholderName ?? "";
       const sheetExpMonth = formatExpMonth(matchingRow?.[6] ?? (account.cardOnFile?.expMonth != null ? String(account.cardOnFile.expMonth) : ""));
       const sheetExpYear = formatExpYear(matchingRow?.[7] ?? (account.cardOnFile?.expYear != null ? String(account.cardOnFile.expYear) : ""));
 
+      const sheetProfileName = matchingRow?.[1] ?? account.botProfileName;
+
       return {
-        profileName: account.botProfileName,
-        email: account.email,
-        phone: formatPhone(account.shippingPhone ?? account.billingPhone),
+        name: sheetProfileName,
         shipping: {
-          ...shippingName,
-          country: "US",
-          address: shippingAddress.address,
-          address2: shippingAddress.address2,
-          state: formatState(shippingAddress.state),
-          city: shippingAddress.city,
-          zipcode: shippingAddress.zipcode,
+          firstName: shippingName.firstName,
+          lastName: shippingName.lastName,
+          email: account.email,
+          phone: formatPhone(account.shippingPhone ?? account.billingPhone),
+          address: address.address,
+          address2: address.address2,
+          country: "United States",
+          state: formatState(account.shippingState ?? account.billingState),
+          city: account.shippingCity ?? account.billingCity ?? "",
+          zipCode: account.shippingZip ?? account.billingZip ?? "",
         },
-        billingAsShipping: account.billingSameAsShipping,
-        oneCheckoutPerProfile: account.onlyOneCheckout,
-        billing: {
-          ...billingName,
-          country: "US",
-          address: billingAddress.address,
-          address2: billingAddress.address2,
-          state: formatState(billingAddress.state),
-          city: billingAddress.city,
-          zipcode: billingAddress.zipcode,
-        },
-        payment: {
-          cardName: sheetCardholderName || account.cardOnFile?.cardholderName || (account.billingSameAsShipping ? `${shippingName.firstName} ${shippingName.lastName}`.trim() : `${billingName.firstName} ${billingName.lastName}`.trim()),
-          cardType: sheetCardType || account.cardOnFile?.cardBrand || "",
+        cardInfo: {
           cardNumber: sheetCardNumber,
-          cardMonth: sheetExpMonth,
-          cardYear: sheetExpYear,
-          cardCvv: sheetCvv,
+          holder: sheetCardholderName || account.cardOnFile?.cardholderName || "",
+          expMonth: sheetExpMonth,
+          expYear: sheetExpYear,
+          cvv: sheetCvv,
         },
+        sameAsBilling: account.billingSameAsShipping,
+        groupId: crypto.randomUUID(),
+        id: crypto.randomUUID(),
+        encrypted: false,
       };
     });
 
@@ -345,7 +313,7 @@ export async function GET(request: NextRequest) {
     status: 200,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Content-Disposition": "attachment; filename=stellar-accounts.json",
+      "Content-Disposition": "attachment; filename=hayha-accounts.json",
     },
   });
 }

@@ -7,6 +7,7 @@ async function main() {
   await prisma.checkout.deleteMany();
   await prisma.acoAccount.deleteMany();
   await prisma.paymentMethod.deleteMany();
+  await prisma.retailer.deleteMany();
   await prisma.pricingRule.deleteMany();
   await prisma.user.deleteMany();
 
@@ -32,7 +33,7 @@ async function main() {
       {
         key: "zelle",
         label: "Zelle",
-        handle: "pay@chudaco.io",
+        handle: "pay@chudaco.com",
         note: "Send from your registered email if possible.",
       },
       {
@@ -41,6 +42,16 @@ async function main() {
         handle: "$ChudACOPAS",
         note: "Include your ticket code in the memo.",
       },
+    ],
+  });
+
+  await prisma.retailer.createMany({
+    data: [
+      { name: "Target", isActive: true, sortOrder: 1 },
+      { name: "Pokemon Center", isActive: true, sortOrder: 2 },
+      { name: "Sam's Club", isActive: true, sortOrder: 3 },
+      { name: "Costco", isActive: true, sortOrder: 4 },
+      { name: "Bandai", isActive: true, sortOrder: 5 },
     ],
   });
 

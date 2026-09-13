@@ -6,6 +6,7 @@ const sections = [
   { id: "getting-access", label: "1. Get access" },
   { id: "signing-in", label: "2. Sign in" },
   { id: "adding-account", label: "3. Add an ACO account" },
+  { id: "imap-passwords", label: "Generating IMAP Passwords" },
   { id: "name-account", label: "4. Name your account" },
   { id: "pricing", label: "Understanding pricing" },
   { id: "notifications", label: "Getting notified" },
@@ -109,7 +110,7 @@ export default function SetupGuidePage() {
           <section id="adding-account" className="border-b border-[#2C2D3A] pb-10">
             <h2 className="font-heading text-2xl font-semibold">3. Add an ACO account</h2>
             <p className="mt-2 max-w-[68ch] text-[#9C9AAE]">
-              Each ACO account is one retailer login. We currently support Target and Pokemon Center only, with a limit of 2 accounts per user for now.
+              Each ACO account is one retailer login. We currently support Target, Pokemon Center, Sam's Club, Costco, and Bandai, with a limit of 2 accounts per user for now.
             </p>
             <p className="mt-4 max-w-[68ch]">This account limit will be increased later.</p>
 
@@ -117,7 +118,7 @@ export default function SetupGuidePage() {
             <p className="mt-2 max-w-[68ch] text-[#9C9AAE]">Start with these top-level fields before moving to shipping and payment.</p>
             <ul className="mt-3 max-w-[68ch] list-disc space-y-2 pl-5 text-sm text-[#D7D6E4]">
               <li><strong>Account name:</strong> Enter your own label, such as Primary or Backup1, so you can identify the account later.</li>
-              <li><strong>Retailer:</strong> Select the retailer for that login. Only Target and Pokemon Center are supported right now.</li>
+              <li><strong>Retailer:</strong> Select the retailer from the dropdown (Target, Pokemon Center, Sam's Club, Costco, or Bandai).</li>
               <li><strong>Retailer login email:</strong> Enter the email or username used on that retailer account.</li>
               <li><strong>Retailer login password:</strong> Enter the password for that retailer account.</li>
               <li><strong>One checkout only:</strong> Leave this enabled if you want one successful checkout per account.</li>
@@ -154,7 +155,13 @@ export default function SetupGuidePage() {
             <ul className="mt-3 max-w-[68ch] list-disc space-y-2 pl-5 text-sm text-[#D7D6E4]">
               <li><strong>Email address:</strong> Use the inbox that receives retailer order and verification emails.</li>
               <li><strong>IMAP host, port, security:</strong> If provider is Other, enter manually. Most providers use port 993 with SSL/TLS.</li>
-              <li><strong>Email password:</strong> Use an app password if your provider requires one.</li>
+              <li>
+                <strong>Email password:</strong> Use an app password generated specifically for IMAP (see{" "}
+                <a href="#imap-passwords" className="text-[#4C79FF] underline hover:text-[#7095FF]">
+                  detailed instructions below
+                </a>
+                ).
+              </li>
               <li><strong>Test IMAP connection:</strong> After filling these fields, click <strong>Test IMAP connection</strong> to confirm the credentials and server settings are valid before saving.</li>
             </ul>
             <div className="mt-4 flex max-w-[68ch] gap-3 rounded-lg border border-[#5C4A1A] bg-[#332B12] px-4 py-3 text-sm text-[#FFCB3C]">
@@ -181,6 +188,189 @@ export default function SetupGuidePage() {
               <li><strong>CVV:</strong> Enter the security code.</li>
               <li><strong>Cardholder name:</strong> Enter the name exactly as printed on the card.</li>
             </ul>
+          </section>
+
+          <section id="imap-passwords" className="border-b border-[#2C2D3A] pb-10">
+            <h2 className="font-heading text-2xl font-semibold">Generating an IMAP / App Password</h2>
+            <p className="mt-2 max-w-[68ch] text-[#9C9AAE]">
+              Major email providers require an <strong>App Password</strong> (or App-Specific Password) rather than your personal login password to allow automated IMAP access. Follow the guide for your provider below:
+            </p>
+
+            <div className="mt-6 max-w-[68ch] space-y-6">
+              {/* Gmail */}
+              <div className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-5">
+                <div className="flex items-center justify-between border-b border-[#2C2D3A] pb-3">
+                  <h3 className="font-heading text-lg font-semibold text-[#F2F1F6]">Gmail / Google Workspace</h3>
+                  <span className="rounded bg-[#212230] px-2 py-0.5 font-mono text-xs text-[#B9C6FF]">imap.gmail.com</span>
+                </div>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-[#D7D6E4]">
+                  <li>
+                    Go to your Google Account at{" "}
+                    <a
+                      href="https://myaccount.google.com/security"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#4C79FF] hover:underline"
+                    >
+                      myaccount.google.com/security
+                    </a>
+                    .
+                  </li>
+                  <li>
+                    Make sure <strong>2-Step Verification</strong> is turned <strong>ON</strong>.
+                  </li>
+                  <li>
+                    In the search bar at the top of your Google Account page, search for <strong>&quot;App passwords&quot;</strong> and click the result.
+                  </li>
+                  <li>
+                    Under <strong>App name</strong>, type <span className="font-mono text-xs text-[#B9C6FF]">ChudACO</span> and click <strong>Create</strong>.
+                  </li>
+                  <li>
+                    Copy the <strong>16-character password</strong> (e.g. <span className="font-mono text-xs text-[#FFCB3C]">abcd efgh ijkl mnop</span>). You can enter it with or without spaces.
+                  </li>
+                  <li>
+                    <em>Note:</em> Ensure IMAP is enabled in Gmail settings (&quot;See all settings&quot; &rarr; &quot;Forwarding and POP/IMAP&quot; &rarr; &quot;Enable IMAP&quot;).
+                  </li>
+                </ol>
+              </div>
+
+              {/* Outlook / Microsoft 365 */}
+              <div className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-5">
+                <div className="flex items-center justify-between border-b border-[#2C2D3A] pb-3">
+                  <h3 className="font-heading text-lg font-semibold text-[#F2F1F6]">Outlook / Hotmail / Microsoft 365</h3>
+                  <span className="rounded bg-[#212230] px-2 py-0.5 font-mono text-xs text-[#B9C6FF]">outlook.office365.com</span>
+                </div>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-[#D7D6E4]">
+                  <li>
+                    Sign in to your Microsoft Account Security page at{" "}
+                    <a
+                      href="https://account.microsoft.com/security"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#4C79FF] hover:underline"
+                    >
+                      account.microsoft.com/security
+                    </a>
+                    .
+                  </li>
+                  <li>
+                    Click on <strong>Advanced security options</strong> (or &quot;Two-step verification&quot;).
+                  </li>
+                  <li>
+                    Under the <strong>App passwords</strong> section, click <strong>Create a new app password</strong>.
+                  </li>
+                  <li>
+                    Copy the generated app password and paste it into the IMAP password field in ChudACO.
+                  </li>
+                  <li>
+                    <em>Note:</em> In Outlook web settings, make sure POP/IMAP access is turned on (&quot;Settings&quot; &rarr; &quot;Mail&quot; &rarr; &quot;Sync email&quot; &rarr; &quot;Let devices and apps use POP/IMAP&quot;).
+                  </li>
+                </ol>
+              </div>
+
+              {/* Yahoo */}
+              <div className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-5">
+                <div className="flex items-center justify-between border-b border-[#2C2D3A] pb-3">
+                  <h3 className="font-heading text-lg font-semibold text-[#F2F1F6]">Yahoo Mail</h3>
+                  <span className="rounded bg-[#212230] px-2 py-0.5 font-mono text-xs text-[#B9C6FF]">imap.mail.yahoo.com</span>
+                </div>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-[#D7D6E4]">
+                  <li>
+                    Sign in to Yahoo and navigate to{" "}
+                    <a
+                      href="https://login.yahoo.com/account/security"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#4C79FF] hover:underline"
+                    >
+                      Account Security
+                    </a>
+                    .
+                  </li>
+                  <li>
+                    Scroll down and click <strong>Generate and manage app passwords</strong> (or <strong>App password</strong>).
+                  </li>
+                  <li>
+                    Click <strong>Generate app password</strong> (or <strong>Get started</strong>), enter <span className="font-mono text-xs text-[#B9C6FF]">ChudACO</span> as the app name, and click <strong>Generate password</strong>.
+                  </li>
+                  <li>
+                    Copy the 16-character code and paste it as your IMAP password.
+                  </li>
+                </ol>
+              </div>
+
+              {/* iCloud */}
+              <div className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-5">
+                <div className="flex items-center justify-between border-b border-[#2C2D3A] pb-3">
+                  <h3 className="font-heading text-lg font-semibold text-[#F2F1F6]">iCloud Mail (@icloud.com / @me.com)</h3>
+                  <span className="rounded bg-[#212230] px-2 py-0.5 font-mono text-xs text-[#B9C6FF]">imap.mail.me.com</span>
+                </div>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-[#D7D6E4]">
+                  <li>
+                    Sign in to your Apple ID account at{" "}
+                    <a
+                      href="https://appleid.apple.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#4C79FF] hover:underline"
+                    >
+                      appleid.apple.com
+                    </a>
+                    .
+                  </li>
+                  <li>
+                    In the <strong>Sign-In and Security</strong> section, select <strong>App-Specific Passwords</strong>.
+                  </li>
+                  <li>
+                    Click <strong>Generate an app-specific password</strong> (or click the <strong>+</strong> button).
+                  </li>
+                  <li>
+                    Enter <span className="font-mono text-xs text-[#B9C6FF]">ChudACO</span> for the label and click <strong>Create</strong>.
+                  </li>
+                  <li>
+                    Enter your Apple ID password to confirm, then copy the 16-character password into ChudACO.
+                  </li>
+                </ol>
+              </div>
+
+              {/* AOL */}
+              <div className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-5">
+                <div className="flex items-center justify-between border-b border-[#2C2D3A] pb-3">
+                  <h3 className="font-heading text-lg font-semibold text-[#F2F1F6]">AOL Mail</h3>
+                  <span className="rounded bg-[#212230] px-2 py-0.5 font-mono text-xs text-[#B9C6FF]">imap.aol.com</span>
+                </div>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-[#D7D6E4]">
+                  <li>
+                    Sign in to AOL and go to your <strong>Account Security</strong> settings.
+                  </li>
+                  <li>
+                    Click <strong>Generate app password</strong> (or <strong>Manage app passwords</strong>).
+                  </li>
+                  <li>
+                    Enter <span className="font-mono text-xs text-[#B9C6FF]">ChudACO</span> as the app name and click <strong>Generate</strong>.
+                  </li>
+                  <li>
+                    Copy the generated password and paste it into ChudACO.
+                  </li>
+                </ol>
+              </div>
+
+              {/* Other / Custom Providers */}
+              <div className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-5">
+                <div className="flex items-center justify-between border-b border-[#2C2D3A] pb-3">
+                  <h3 className="font-heading text-lg font-semibold text-[#F2F1F6]">Zoho / Custom Domains / Other Providers</h3>
+                  <span className="rounded bg-[#212230] px-2 py-0.5 font-mono text-xs text-[#B9C6FF]">Custom IMAP</span>
+                </div>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-[#D7D6E4]">
+                  <li>
+                    For <strong>Zoho Mail</strong>: Go to <em>accounts.zoho.com &rarr; Security &rarr; Application-Specific Passwords</em>, generate a password for ChudACO, and make sure IMAP is enabled in Zoho Mail settings.
+                  </li>
+                  <li>
+                    For <strong>custom domains (cPanel, Fastmail, Namecheap, etc.)</strong>: Enter your provider&apos;s IMAP Host, Port (usually 993), and Security (SSL/TLS). Generate an app password if your host requires one, or use your email account password.
+                  </li>
+                </ol>
+              </div>
+            </div>
           </section>
 
           <section id="name-account" className="border-b border-[#2C2D3A] pb-10">
@@ -251,7 +441,7 @@ export default function SetupGuidePage() {
             <div className="mt-4 flex max-w-[68ch] flex-wrap gap-2 text-sm">
               {[
                 ["Venmo", "@chudaco-pas"],
-                ["Zelle", "pay@chudaco.io"],
+                ["Zelle", "pay@chudaco.com"],
                 ["Cash App", "$ChudACOPAS"],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-[#2C2D3A] bg-[#18181F] px-4 py-3">

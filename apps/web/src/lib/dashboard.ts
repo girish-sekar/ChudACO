@@ -47,6 +47,22 @@ export type PaymentMethod = {
   note: string;
 };
 
+export type Retailer = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+export const DEFAULT_RETAILERS = [
+  "Target",
+  "Pokemon Center",
+  "Sam's Club",
+  "Costco",
+  "Bandai",
+] as const;
+
+
 export type AcoAccount = {
   id: string;
   userId: string;

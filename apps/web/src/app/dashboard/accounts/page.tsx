@@ -1,12 +1,15 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import {
+  DEFAULT_RETAILERS,
   fetchJson,
   formatDate,
   type AcoAccount,
   type CardOnFile,
+  type Retailer,
 } from "@/lib/dashboard";
 
 type AccountsResponse = {
@@ -61,15 +64,12 @@ type FormState = {
   imapSecurity: string;
   password: string;
   status: "active" | "locked" | "banned";
-};
-
-type PaymentFormState = {
+  cardholderName: string;
+  cardBrand: string;
   cardNumber: string;
   expMonth: string;
   expYear: string;
   cvv: string;
-  cardholderName: string;
-  cardBrand: string;
 };
 
 function toSafeNumber(value: string): number {
@@ -119,15 +119,12 @@ const defaultFormState: FormState = {
   imapSecurity: "SSL/TLS",
   password: "",
   status: "active",
-};
-
-const defaultPaymentForm: PaymentFormState = {
+  cardholderName: "",
+  cardBrand: "",
   cardNumber: "",
   expMonth: "",
   expYear: "",
   cvv: "",
-  cardholderName: "",
-  cardBrand: "",
 };
 
 function normalizeEmailProvider(value: string | null | undefined): keyof typeof EMAIL_PROVIDER_HOSTS | "" {
@@ -160,6 +157,7 @@ function splitAddressLines(value: string | null | undefined) {
 
 export default function AccountsPage() {
   const { data, error, mutate } = useSWR<AccountsResponse>("/api/aco-accounts", fetchJson);
+  const { data: retailersData } = useSWR<{ data: Retailer[] }>("/api/retailers", fetchJson);
   const [statusBanner, setStatusBanner] = useState<StatusBanner | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -169,9 +167,14 @@ export default function AccountsPage() {
   const [formState, setFormState] = useState<FormState>(defaultFormState);
   const [showSuccessPulse, setShowSuccessPulse] = useState(false);
 
+  const retailerOptions = useMemo(() => {
+    if (retailersData?.data && retailersData.data.length > 0) {
+      return retailersData.data.map((item) => item.name);
+    }
+    return Array.from(DEFAULT_RETAILERS);
+  }, [retailersData]);
+
   const [cardByAccount, setCardByAccount] = useState<Record<string, CardOnFile | null>>({});
-  const [paymentForms, setPaymentForms] = useState<Record<string, PaymentFormState>>({});
-  const [isSubmittingPayment, setIsSubmittingPayment] = useState<Record<string, boolean>>({});
 
   const maxAccountsPerUser = data?.meta?.maxAccountsPerUser ?? 2;
   const currentAccounts = data?.meta?.currentAccounts ?? data?.data?.length ?? 0;
@@ -236,6 +239,7 @@ export default function AccountsPage() {
     setStatusBanner(null);
     setEditingId(account.id);
     const normalizedProvider = normalizeEmailProvider(account.emailProvider);
+    const card = cardByAccount[account.id];
     setFormState({
       label: account.label,
       email: account.email,
@@ -280,8 +284,17 @@ export default function AccountsPage() {
       imapSecurity: account.imapSecurity,
       password: "",
       status: account.status,
+      cardholderName: card?.cardholderName ?? "",
+      cardBrand: card?.cardBrand ?? "",
+      cardNumber: "",
+      expMonth: card?.expMonth ? String(card.expMonth).padStart(2, "0") : "",
+      expYear: card?.expYear ? String(card.expYear) : "",
+      cvv: "",
     });
     setShowForm(true);
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   }
 
   function setRetailerLoginField(
@@ -344,6 +357,13 @@ export default function AccountsPage() {
       return;
     }
 
+    const missingRetailer = cleanedRetailerLogins.some((entry) => !entry.retailer);
+    if (missingRetailer) {
+      setIsSubmitting(false);
+      setStatusBanner({ message: "Please select a retailer from the dropdown for each login entry.", tone: "error" });
+      return;
+    }
+
     const firstRetailLogin = cleanedRetailerLogins[0];
     const shippingAddr = [formState.shippingAddr, formState.shippingAddr2, formState.shippingAddr3]
       .map((value) => value.trim())
@@ -389,9 +409,8 @@ export default function AccountsPage() {
       body: JSON.stringify(payload),
     });
 
-    setIsSubmitting(false);
-
     if (!response.ok) {
+      setIsSubmitting(false);
       const errorBody = (await response.json().catch(() => null)) as
         | { error?: string; detail?: string }
         | null;
@@ -407,8 +426,43 @@ export default function AccountsPage() {
     }
 
     const body = (await response.json().catch(() => null)) as
-      | { warning?: string }
+      | { data?: { id?: string }; warning?: string }
       | null;
+
+    const savedAccountId = editingId ?? body?.data?.id;
+
+    if (savedAccountId && formState.cardNumber.trim()) {
+      const paymentPayload = {
+        cardNumber: formState.cardNumber,
+        expMonth: toSafeNumber(formState.expMonth),
+        expYear: toSafeNumber(formState.expYear),
+        cvv: formState.cvv,
+        cardholderName: formState.cardholderName,
+        cardBrand: formState.cardBrand,
+      };
+
+      try {
+        const paymentResponse = await fetch(`/api/aco-accounts/${savedAccountId}/payment-info`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(paymentPayload),
+        });
+
+        const paymentBody = (await paymentResponse.json().catch(() => null)) as
+          | { data?: CardOnFile; error?: string }
+          | null;
+
+        if (paymentResponse.ok && paymentBody?.data) {
+          setCardByAccount((current) => ({ ...current, [savedAccountId]: paymentBody.data ?? null }));
+        } else if (paymentBody?.error) {
+          console.warn("Payment info save warning:", paymentBody.error);
+        }
+      } catch (err) {
+        console.warn("Failed to relay payment info:", err);
+      }
+    }
+
+    setIsSubmitting(false);
 
     setStatusBanner({
       message:
@@ -417,6 +471,13 @@ export default function AccountsPage() {
     });
     resetForm();
     await mutate();
+
+    if (savedAccountId) {
+      const shouldTest = window.confirm("Account saved successfully. Would you like to test the IMAP connection now?");
+      if (shouldTest) {
+        await testImapConnection(savedAccountId);
+      }
+    }
   }
 
   function updateEmailProvider(value: string) {
@@ -449,11 +510,6 @@ export default function AccountsPage() {
       }
 
       setCardByAccount((current) => {
-        const next = { ...current };
-        delete next[id];
-        return next;
-      });
-      setPaymentForms((current) => {
         const next = { ...current };
         delete next[id];
         return next;
@@ -507,72 +563,6 @@ export default function AccountsPage() {
     }
   }
 
-  function getPaymentForm(accountId: string): PaymentFormState {
-    return paymentForms[accountId] ?? defaultPaymentForm;
-  }
-
-  function setPaymentFormField(accountId: string, field: keyof PaymentFormState, value: string) {
-    setPaymentForms((current) => ({
-      ...current,
-      [accountId]: {
-        ...getPaymentForm(accountId),
-        [field]: value,
-      },
-    }));
-  }
-
-  async function submitPaymentInfo(accountId: string, event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmittingPayment((current) => ({ ...current, [accountId]: true }));
-
-    const form = getPaymentForm(accountId);
-
-    const payload = {
-      cardNumber: form.cardNumber,
-      expMonth: toSafeNumber(form.expMonth),
-      expYear: toSafeNumber(form.expYear),
-      cvv: form.cvv,
-      cardholderName: form.cardholderName,
-      cardBrand: form.cardBrand,
-    };
-
-    try {
-      const response = await fetch(`/api/aco-accounts/${accountId}/payment-info`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const body = (await response.json().catch(() => null)) as
-        | { data?: CardOnFile; error?: string }
-        | null;
-
-      if (!response.ok || !body?.data) {
-        const detailsText =
-          body && typeof body === "object" && "details" in body
-            ? JSON.stringify((body as { details?: unknown }).details)
-            : undefined;
-        setStatusBanner({
-          message:
-            body?.error && detailsText
-              ? `${body.error}: ${detailsText}`
-              : body?.error ?? "Failed to save payment method.",
-          tone: "error",
-        });
-        return;
-      }
-
-      setCardByAccount((current) => ({ ...current, [accountId]: body.data ?? null }));
-      setPaymentForms((current) => ({ ...current, [accountId]: defaultPaymentForm }));
-      setStatusBanner({
-        message: "Payment method relayed and display card saved.",
-        tone: "success",
-      });
-    } finally {
-      setIsSubmittingPayment((current) => ({ ...current, [accountId]: false }));
-    }
-  }
-
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -604,12 +594,31 @@ export default function AccountsPage() {
           onSubmit={submit}
           className="grid gap-3 rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4 md:grid-cols-2"
         >
+          {/* 1. Account & IMAP Configuration at Top */}
+          <div className="space-y-1 md:col-span-2">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <h3 className="font-heading text-base font-semibold text-[#F2F1F6]">
+                IMAP & Account Configuration
+              </h3>
+              <Link
+                href="/setup-guide#imap-passwords"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-medium text-[#4C79FF] hover:underline"
+              >
+                How to generate IMAP password &rarr;
+              </Link>
+            </div>
+            <p className="text-xs text-[#9C9AAE]">
+              Set up account identity, inbox provider, and IMAP credentials.
+            </p>
+          </div>
           <input
             value={formState.label}
             onChange={(event) =>
               setFormState((current) => ({ ...current, label: event.target.value }))
             }
-            placeholder="Label"
+            placeholder="Account label (e.g. Primary)"
             required
             className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
           />
@@ -626,7 +635,7 @@ export default function AccountsPage() {
           <select
             value={normalizeEmailProvider(formState.emailProvider)}
             onChange={(event) => updateEmailProvider(event.target.value)}
-            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]"
           >
             <option value="">Select email provider</option>
             {EMAIL_PROVIDER_OPTIONS.map((provider) => (
@@ -635,7 +644,63 @@ export default function AccountsPage() {
               </option>
             ))}
           </select>
-          <label className="flex items-center gap-2 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#9C9AAE]">
+          <input
+            value={formState.imapHost}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, imapHost: event.target.value }))
+            }
+            placeholder="IMAP Host"
+            required
+            readOnly={!isManualImapHostProvider(formState.emailProvider)}
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.imapPort}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, imapPort: event.target.value }))
+            }
+            type="number"
+            placeholder="IMAP port (993)"
+            required
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <input
+            value={formState.imapSecurity}
+            onChange={(event) =>
+              setFormState((current) => ({ ...current, imapSecurity: event.target.value }))
+            }
+            placeholder="IMAP security (SSL/TLS)"
+            required
+            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+          />
+          <div className="space-y-1">
+            <input
+              value={formState.password}
+              onChange={(event) =>
+                setFormState((current) => ({ ...current, password: event.target.value }))
+              }
+              type="password"
+              placeholder={
+                editingId
+                  ? "New IMAP password (leave blank to keep current)"
+                  : "IMAP password (app password)"
+              }
+              required={!editingId}
+              className="w-full rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+            />
+            <p className="text-[11px] text-[#9C9AAE]">
+              Need an App Password?{" "}
+              <Link
+                href="/setup-guide#imap-passwords"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#4C79FF] hover:underline"
+              >
+                View guide for your provider
+              </Link>
+            </p>
+          </div>
+          <label className="flex items-center gap-2 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#9C9AAE] md:col-span-2">
             <input
               type="checkbox"
               checked={formState.onlyOneCheckout}
@@ -648,9 +713,14 @@ export default function AccountsPage() {
             />
             Only one checkout
           </label>
+
+          {/* 2. Retailer logins */}
           <div className="rounded-md border border-[#2C2D3A] bg-[#101014] p-3 md:col-span-2">
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-sm font-medium">Retailer logins</p>
+              <div>
+                <p className="text-sm font-medium">Retailer logins</p>
+                <p className="text-xs text-[#9C9AAE]">Select retailer and store login credentials.</p>
+              </div>
               <button
                 type="button"
                 onClick={addRetailerLoginRow}
@@ -660,50 +730,72 @@ export default function AccountsPage() {
               </button>
             </div>
             <div className="space-y-2">
-              {formState.retailerLogins.map((entry, index) => (
-                <div key={index} className="grid gap-2 md:grid-cols-3">
-                  <input
-                    value={entry.retailer}
-                    onChange={(event) => setRetailerLoginField(index, "retailer", event.target.value)}
-                    placeholder="Retailer"
-                    required
-                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
-                  />
-                  <input
-                    value={entry.loginEmail}
-                    onChange={(event) => setRetailerLoginField(index, "loginEmail", event.target.value)}
-                    type="email"
-                    placeholder="Retail login email"
-                    required
-                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
-                  />
-                  <div className="flex gap-2">
-                    <input
-                      value={entry.loginPassword}
+              {formState.retailerLogins.map((entry, index) => {
+                const availableOptions =
+                  retailerOptions.includes(entry.retailer) || !entry.retailer
+                    ? retailerOptions
+                    : [entry.retailer, ...retailerOptions];
+
+                return (
+                  <div key={index} className="grid gap-2 md:grid-cols-3">
+                    <select
+                      value={entry.retailer}
                       onChange={(event) =>
-                        setRetailerLoginField(index, "loginPassword", event.target.value)
+                        setRetailerLoginField(index, "retailer", event.target.value)
                       }
-                      type="password"
-                      placeholder={
-                        editingId
-                          ? "Optional: leave blank to keep or no-password guest"
-                          : "Optional: retail login password (guest checkout can be blank)"
+                      required
+                      className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm text-[#F2F1F6]"
+                    >
+                      <option value="">Select retailer</option>
+                      {availableOptions.map((retailerName) => (
+                        <option key={retailerName} value={retailerName}>
+                          {retailerName}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      value={entry.loginEmail}
+                      onChange={(event) =>
+                        setRetailerLoginField(index, "loginEmail", event.target.value)
                       }
-                      className="w-full rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                      type="email"
+                      placeholder="Retail login email"
+                      required
+                      className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
                     />
-                    {formState.retailerLogins.length > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => removeRetailerLoginRow(index)}
-                        className="rounded-md border border-[#5A2323] px-2 py-2 text-xs text-[#FF9A9A] hover:text-[#FFD1D1]"
-                      >
-                        Remove
-                      </button>
-                    ) : null}
+                    <div className="flex gap-2">
+                      <input
+                        value={entry.loginPassword}
+                        onChange={(event) =>
+                          setRetailerLoginField(index, "loginPassword", event.target.value)
+                        }
+                        type="password"
+                        placeholder={
+                          editingId
+                            ? "Optional: leave blank to keep or no-password guest"
+                            : "Optional: retail login password (guest checkout can be blank)"
+                        }
+                        className="w-full rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                      />
+                      {formState.retailerLogins.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => removeRetailerLoginRow(index)}
+                          className="rounded-md border border-[#5A2323] px-2 py-2 text-xs text-[#FF9A9A] hover:text-[#FFD1D1]"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
+          </div>
+
+          {/* 3. Shipping Address */}
+          <div className="space-y-1 pt-1 md:col-span-2">
+            <h3 className="font-heading text-base font-semibold text-[#F2F1F6]">Shipping Address</h3>
           </div>
           <input
             value={formState.shippingName}
@@ -769,6 +861,8 @@ export default function AccountsPage() {
             placeholder="Shipping ZIP"
             className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
           />
+
+          {/* 4. Billing Address */}
           <label className="flex items-center gap-2 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#9C9AAE] md:col-span-2">
             <input
               type="checkbox"
@@ -850,65 +944,83 @@ export default function AccountsPage() {
               />
             </>
           ) : null}
+
+          {/* 5. Payment Method in the same panel at bottom */}
+          <div className="space-y-1 pt-1 md:col-span-2">
+            <h3 className="font-heading text-base font-semibold text-[#F2F1F6]">Payment Method</h3>
+            <p className="text-xs text-[#9C9AAE]">
+              Card details to relay for auto-checkout and Google Sheets sync.
+              {editingId && cardByAccount[editingId]
+                ? " (Leave card number blank to keep current card on file)"
+                : ""}
+            </p>
+          </div>
           <input
-            value={formState.imapHost}
+            value={formState.cardholderName}
             onChange={(event) =>
-              setFormState((current) => ({ ...current, imapHost: event.target.value }))
+              setFormState((current) => ({ ...current, cardholderName: event.target.value }))
             }
-            placeholder="IMAP Host"
-            required
-            readOnly={!isManualImapHostProvider(formState.emailProvider)}
+            placeholder="Cardholder name"
+            autoComplete="cc-name"
             className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
           />
           <input
-            value={formState.imapPort}
+            value={formState.cardBrand}
             onChange={(event) =>
-              setFormState((current) => ({ ...current, imapPort: event.target.value }))
+              setFormState((current) => ({ ...current, cardBrand: event.target.value }))
             }
-            type="number"
-            required
+            placeholder="Card brand (e.g. Visa, Mastercard, Amex)"
             className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
           />
           <input
-            value={formState.imapSecurity}
+            value={formState.cardNumber}
             onChange={(event) =>
-              setFormState((current) => ({ ...current, imapSecurity: event.target.value }))
+              setFormState((current) => ({ ...current, cardNumber: event.target.value }))
             }
-            placeholder="IMAP security"
-            required
-            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
-          />
-          <select
-            value={formState.status}
-            onChange={(event) =>
-              setFormState((current) => ({
-                ...current,
-                status: event.target.value as FormState["status"],
-              }))
-            }
-            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
-          >
-            <option value="active">Active</option>
-            <option value="locked">Locked</option>
-            <option value="banned">Banned</option>
-          </select>
-          <input
-            value={formState.password}
-            onChange={(event) =>
-              setFormState((current) => ({ ...current, password: event.target.value }))
-            }
-            type="password"
             placeholder={
-              editingId ? "New IMAP password (leave blank to keep current)" : "IMAP password"
+              editingId && cardByAccount[editingId]?.last4
+                ? `•••• •••• •••• ${cardByAccount[editingId]?.last4} (leave blank to keep current)`
+                : "Card number"
             }
-            required={!editingId}
+            autoComplete="cc-number"
             className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
           />
-          <div className="flex flex-col gap-3 md:col-span-2 md:flex-row">
+          <div className="grid grid-cols-3 gap-2 md:col-span-2">
+            <input
+              value={formState.expMonth}
+              onChange={(event) =>
+                setFormState((current) => ({ ...current, expMonth: event.target.value }))
+              }
+              placeholder="Exp Month (MM)"
+              autoComplete="cc-exp-month"
+              className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+            />
+            <input
+              value={formState.expYear}
+              onChange={(event) =>
+                setFormState((current) => ({ ...current, expYear: event.target.value }))
+              }
+              placeholder="Exp Year (YYYY or YY)"
+              autoComplete="cc-exp-year"
+              className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+            />
+            <input
+              value={formState.cvv}
+              onChange={(event) =>
+                setFormState((current) => ({ ...current, cvv: event.target.value }))
+              }
+              placeholder="CVV"
+              type="password"
+              autoComplete="cc-csc"
+              className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div className="flex flex-col gap-3 pt-2 md:col-span-2 md:flex-row">
             <button
               type="submit"
               disabled={isSubmitting}
-              className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6]"
+              className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
             >
               {isSubmitting ? "Saving..." : editingId ? "Save changes" : "Save account"}
             </button>
@@ -950,8 +1062,6 @@ export default function AccountsPage() {
       <section className="space-y-3">
         {data?.data.map((account) => {
           const card = cardByAccount[account.id];
-          const paymentForm = getPaymentForm(account.id);
-          const isSavingPayment = isSubmittingPayment[account.id] === true;
           const retailerNames = account.retailerLogins.map((entry) => entry.retailer).join(", ");
           const retailerLoginEmails = account.retailerLogins
             .map((entry) => entry.loginEmail)
@@ -995,6 +1105,12 @@ export default function AccountsPage() {
                 <p>
                   Billing: {account.billingSameAsShipping ? "same as shipping" : `${account.billingName ?? "N/A"} • ${account.billingAddr ?? "N/A"}`}
                 </p>
+                <p>
+                  Card on file:{" "}
+                  {card
+                    ? `${card.cardBrand ?? "Card"} •••• ${card.last4 ?? "----"} (${card.expMonth ?? "--"}/${card.expYear ?? "----"})`
+                    : "None"}
+                </p>
                 <p className="text-xs text-[#605E72]">
                   Last sync: {account.lastSyncAt ? formatDate(account.lastSyncAt) : "never"}
                 </p>
@@ -1014,7 +1130,7 @@ export default function AccountsPage() {
                   onClick={() => startEdit(account)}
                   className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
                 >
-                  Edit account + shipping
+                  Edit
                 </button>
                 <button
                   type="button"
@@ -1024,100 +1140,6 @@ export default function AccountsPage() {
                 >
                   {deletingId === account.id ? "Deleting..." : "Delete"}
                 </button>
-              </div>
-
-              <div className="mt-5 rounded-lg border border-[#2C2D3A] bg-[#101014] p-4">
-                <p className="font-heading text-lg font-semibold">Payment method</p>
-                {card ? (
-                  <div className="mt-2 text-sm text-[#9C9AAE]">
-                    <p>
-                      {card.cardBrand ?? "Card"} •••• {card.last4 ?? "----"}
-                    </p>
-                    <p>
-                      Expires {card.expMonth ?? "--"}/{card.expYear ?? "----"}
-                    </p>
-                    <p>Cardholder: {card.cardholderName ?? "N/A"}</p>
-                  </div>
-                ) : (
-                  <p className="mt-2 text-sm text-[#9C9AAE]">No card on file yet.</p>
-                )}
-
-                <form
-                  onSubmit={(event) => void submitPaymentInfo(account.id, event)}
-                  className="mt-3 grid gap-2 md:grid-cols-2"
-                >
-                  <input
-                    value={paymentForm.cardholderName}
-                    onChange={(event) =>
-                      setPaymentFormField(account.id, "cardholderName", event.target.value)
-                    }
-                    placeholder="Cardholder name"
-                    required
-                    autoComplete="cc-name"
-                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
-                  />
-                  <input
-                    value={paymentForm.cardBrand}
-                    onChange={(event) =>
-                      setPaymentFormField(account.id, "cardBrand", event.target.value)
-                    }
-                    placeholder="Card brand"
-                    required
-                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
-                  />
-                  <input
-                    value={paymentForm.cardNumber}
-                    onChange={(event) =>
-                      setPaymentFormField(account.id, "cardNumber", event.target.value)
-                    }
-                    placeholder="Card number"
-                    required
-                    autoComplete="cc-number"
-                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm md:col-span-2"
-                  />
-                  <input
-                    value={paymentForm.expMonth}
-                    onChange={(event) =>
-                      setPaymentFormField(account.id, "expMonth", event.target.value)
-                    }
-                    placeholder="Expiry month"
-                    required
-                    type="number"
-                    min={1}
-                    max={12}
-                    autoComplete="cc-exp-month"
-                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
-                  />
-                  <input
-                    value={paymentForm.expYear}
-                    onChange={(event) =>
-                      setPaymentFormField(account.id, "expYear", event.target.value)
-                    }
-                    placeholder="Expiry year"
-                    required
-                    type="number"
-                    min={2024}
-                    max={2100}
-                    autoComplete="cc-exp-year"
-                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
-                  />
-                  <input
-                    value={paymentForm.cvv}
-                    onChange={(event) => setPaymentFormField(account.id, "cvv", event.target.value)}
-                    placeholder="CVV"
-                    required
-                    type="password"
-                    autoComplete="cc-csc"
-                    className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isSavingPayment}
-                    className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
-                  >
-                    {isSavingPayment ? "Saving..." : card ? "Update payment method" : "Add payment method"}
-                  </button>
-                </form>
               </div>
             </article>
           );
