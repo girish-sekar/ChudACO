@@ -39,6 +39,10 @@ function isStellarRetailer(retailer: string): boolean {
   );
 }
 
+function isCostcoRetailer(retailer: string): boolean {
+  return retailer.trim().toLowerCase() === "costco";
+}
+
 function parseEncryptedValue(value: string | null, iv: string | null): string | null {
   if (!value || !iv) {
     return null;
@@ -127,13 +131,27 @@ export async function GET(request: NextRequest) {
   } else if (category === "stellar") {
     isCategoryFilter = true;
     effectiveRetailerFilters = userFilters.length > 0 ? userFilters.filter(isStellarRetailer) : STELLAR_RETAILERS;
+  } else if (category === "valor") {
+    isCategoryFilter = true;
+    if (userFilters.length === 0) {
+      return NextResponse.json(
+        { error: "Select at least one retailer before exporting Valor accounts." },
+        { status: 400 },
+      );
+    }
+    effectiveRetailerFilters = userFilters;
   } else {
     effectiveRetailerFilters = userFilters;
   }
 
   // If a category was requested and explicit user filters had 0 intersection, return empty
   if (isCategoryFilter && userFilters.length > 0 && effectiveRetailerFilters.length === 0) {
-    const filename = category === "hayha" ? "hayha-accounts.txt" : "stellar-accounts.txt";
+    const filename =
+      category === "hayha"
+        ? "hayha-accounts.txt"
+        : category === "stellar"
+          ? "stellar-accounts.txt"
+          : "valor-accounts.txt";
     return new NextResponse("", {
       status: 200,
       headers: {
@@ -187,13 +205,6 @@ export async function GET(request: NextRequest) {
 
   const lines = accounts
     .flatMap((account) => {
-      const imapPassword = parseEncryptedValue(account.encryptedPassword, account.encryptionIv);
-      if (!imapPassword || !account.email) {
-        return [];
-      }
-
-      const provider = normalizeProvider(account.emailProvider, account.imapHost, account.email);
-
       const entries =
         account.retailerLogins.length > 0
           ? account.retailerLogins
@@ -222,6 +233,12 @@ export async function GET(request: NextRequest) {
                 effectiveRetailerFilters.some((r) => r.toLowerCase() === entry.retailer.toLowerCase()))
             );
           }
+          if (category === "valor") {
+            return (
+              effectiveRetailerFilters.length === 0 ||
+              effectiveRetailerFilters.some((r) => r.toLowerCase() === entry.retailer.toLowerCase())
+            );
+          }
           if (effectiveRetailerFilters.length === 0) {
             return true;
           }
@@ -239,6 +256,16 @@ export async function GET(request: NextRequest) {
             return null;
           }
 
+          if (category === "stellar" && isCostcoRetailer(entry.retailer)) {
+            return `${entry.loginEmail};${retailLoginPassword ?? ""}`;
+          }
+
+          const imapPassword = parseEncryptedValue(account.encryptedPassword, account.encryptionIv);
+          if (!imapPassword || !account.email) {
+            return null;
+          }
+
+          const provider = normalizeProvider(account.emailProvider, account.imapHost, account.email);
           return `${entry.loginEmail}:::${retailLoginPassword ?? ""}:::${account.email}:::${imapPassword}:::${provider}`;
         })
         .filter((line): line is string => line !== null);
@@ -250,7 +277,9 @@ export async function GET(request: NextRequest) {
       ? "hayha-accounts.txt"
       : category === "stellar"
         ? "stellar-accounts.txt"
-        : "admin-account-export.txt";
+        : category === "valor"
+          ? "valor-accounts.txt"
+          : "admin-account-export.txt";
 
   return new NextResponse(lines.join("\n"), {
     status: 200,

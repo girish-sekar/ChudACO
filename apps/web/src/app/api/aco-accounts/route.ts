@@ -76,9 +76,19 @@ type SanitizedAcoAccount = {
     retailer: string;
     loginEmail: string;
   }[];
+  retailerCards?: {
+    id: string;
+    retailer: string;
+    cardBrand: string | null;
+    last4: string | null;
+    expMonth: number | null;
+    expYear: number | null;
+    cardholderName: string | null;
+    updatedAt: Date;
+  }[];
 };
 
-const DEFAULT_MAX_ACCOUNTS_PER_USER = 2;
+const DEFAULT_MAX_ACCOUNTS_PER_USER = 5;
 const PREMIUM_MAX_ACCOUNTS_PER_USER = 10;
 
 class MaxAccountsPerUserError extends Error {
@@ -151,6 +161,16 @@ function sanitizeAcoAccount(account: {
     retailer: string;
     loginEmail: string;
   }[];
+  retailerCards?: {
+    id: string;
+    retailer: string;
+    cardBrand: string | null;
+    last4: string | null;
+    expMonth: number | null;
+    expYear: number | null;
+    cardholderName: string | null;
+    updatedAt: Date;
+  }[];
 }): SanitizedAcoAccount {
   return {
     id: account.id,
@@ -182,6 +202,16 @@ function sanitizeAcoAccount(account: {
     imapSecurity: account.imapSecurity,
     lastSyncAt: account.lastSyncAt,
     retailerLogins: account.retailerLogins,
+    retailerCards: account.retailerCards?.map((card) => ({
+      id: card.id,
+      retailer: card.retailer,
+      cardBrand: card.cardBrand,
+      last4: card.last4,
+      expMonth: card.expMonth,
+      expYear: card.expYear,
+      cardholderName: card.cardholderName,
+      updatedAt: card.updatedAt,
+    })),
   };
 }
 
@@ -229,6 +259,19 @@ export async function GET() {
           id: true,
           retailer: true,
           loginEmail: true,
+        },
+        orderBy: { retailer: "asc" },
+      },
+      retailerCards: {
+        select: {
+          id: true,
+          retailer: true,
+          cardBrand: true,
+          last4: true,
+          expMonth: true,
+          expYear: true,
+          cardholderName: true,
+          updatedAt: true,
         },
         orderBy: { retailer: "asc" },
       },

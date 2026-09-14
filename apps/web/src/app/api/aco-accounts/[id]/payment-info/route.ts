@@ -1,7 +1,7 @@
 import { prisma } from "@chudaco/db";
 import { NextResponse } from "next/server";
 import { getAuthenticatedContext } from "@/lib/api-auth";
-import { upsertGoogleSheetAccountRow } from "@/lib/google-sheets-relay";
+import { deleteGoogleSheetRowsForAccount, upsertGoogleSheetAccountRow } from "@/lib/google-sheets-relay";
 import {
   buildGoogleSheetRow,
   getCardLast4,
@@ -19,6 +19,7 @@ type RouteParams = {
 function sanitizeCardOnFile(card: {
   id: string;
   acoAccountId: string;
+  retailer?: string | null;
   cardBrand: string | null;
   last4: string | null;
   expMonth: number | null;
@@ -29,6 +30,7 @@ function sanitizeCardOnFile(card: {
   return {
     id: card.id,
     acoAccountId: card.acoAccountId,
+    retailer: card.retailer ?? null,
     cardBrand: card.cardBrand,
     last4: card.last4,
     expMonth: card.expMonth,
@@ -38,7 +40,7 @@ function sanitizeCardOnFile(card: {
   };
 }
 
-export async function GET(_request: Request, context: RouteParams) {
+export async function GET(request: Request, context: RouteParams) {
   const authContext = await getAuthenticatedContext();
   if (!authContext) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -53,6 +55,23 @@ export async function GET(_request: Request, context: RouteParams) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const retailer = new URL(request.url).searchParams.get("retailer")?.trim();
+
+  if (retailer) {
+    const retailerCard = await prisma.acoRetailerCard.findUnique({
+      where: {
+        acoAccountId_retailer: {
+          acoAccountId: account.id,
+          retailer,
+        },
+      },
+    });
+
+    return NextResponse.json({
+      data: retailerCard ? sanitizeCardOnFile({ ...retailerCard, retailer: retailerCard.retailer }) : null,
+    });
+  }
+
   const card = await prisma.cardOnFile.findUnique({
     where: { acoAccountId: account.id },
   });
@@ -60,6 +79,42 @@ export async function GET(_request: Request, context: RouteParams) {
   return NextResponse.json({
     data: card ? sanitizeCardOnFile(card) : null,
   });
+}
+
+export async function DELETE(request: Request, context: RouteParams) {
+  const authContext = await getAuthenticatedContext();
+  if (!authContext) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const account = await prisma.acoAccount.findFirst({
+    where: { id: context.params.id, userId: authContext.userId },
+    select: { id: true },
+  });
+  if (!account) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const body = await request.json().catch(() => null);
+  if (!body || (body.retailer !== null && (typeof body.retailer !== "string" || !body.retailer.trim()))) {
+    return NextResponse.json({ error: "Specify a retailer, or null for the default card." }, { status: 400 });
+  }
+  const retailer: string | null = body.retailer === null ? null : body.retailer.trim();
+
+  try {
+    await deleteGoogleSheetRowsForAccount(account.id, retailer);
+  } catch {
+    return NextResponse.json({ error: "Failed to remove card from Google Sheets. Please retry saving." }, { status: 502 });
+  }
+
+  if (retailer === null) {
+    await prisma.cardOnFile.deleteMany({ where: { acoAccountId: account.id } });
+  } else {
+    await prisma.acoRetailerCard.deleteMany({
+      where: { acoAccountId: account.id, retailer: { equals: retailer, mode: "insensitive" } },
+    });
+  }
+  return NextResponse.json({ data: null });
 }
 
 export async function POST(request: Request, context: RouteParams) {
@@ -107,6 +162,7 @@ export async function POST(request: Request, context: RouteParams) {
     );
   }
 
+  const retailer = typeof body?.retailer === "string" && body.retailer.trim().length > 0 ? body.retailer.trim() : null;
   const normalizedCardNumber = normalizeCardNumber(parsed.data.cardNumber);
   const normalizedExpYear = normalizeExpirationYear(parsed.data.expYear);
   if (normalizedCardNumber.length < 12 || normalizedCardNumber.length > 19) {
@@ -143,6 +199,7 @@ export async function POST(request: Request, context: RouteParams) {
   const billingCountry = shippingCountry;
   const otherEntriesList = JSON.stringify({
     acoAccountId: account.id,
+    retailer,
   });
 
   const sheetRow = buildGoogleSheetRow({
@@ -193,24 +250,55 @@ export async function POST(request: Request, context: RouteParams) {
     );
   }
 
-  const card = await prisma.cardOnFile.upsert({
-    where: { acoAccountId: account.id },
-    update: {
-      cardBrand: parsed.data.cardBrand,
-      last4: getCardLast4(normalizedCardNumber),
-      expMonth: parsed.data.expMonth,
-      expYear: normalizedExpYear,
-      cardholderName: parsed.data.cardholderName,
-    },
-    create: {
-      acoAccountId: account.id,
-      cardBrand: parsed.data.cardBrand,
-      last4: getCardLast4(normalizedCardNumber),
-      expMonth: parsed.data.expMonth,
-      expYear: normalizedExpYear,
-      cardholderName: parsed.data.cardholderName,
-    },
-  });
+  const cardRecord = retailer
+    ? await prisma.acoRetailerCard.upsert({
+        where: {
+          acoAccountId_retailer: {
+            acoAccountId: account.id,
+            retailer,
+          },
+        },
+        update: {
+          cardBrand: parsed.data.cardBrand,
+          last4: getCardLast4(normalizedCardNumber),
+          expMonth: parsed.data.expMonth,
+          expYear: normalizedExpYear,
+          cardholderName: parsed.data.cardholderName,
+        },
+        create: {
+          acoAccountId: account.id,
+          retailer,
+          cardBrand: parsed.data.cardBrand,
+          last4: getCardLast4(normalizedCardNumber),
+          expMonth: parsed.data.expMonth,
+          expYear: normalizedExpYear,
+          cardholderName: parsed.data.cardholderName,
+        },
+      })
+    : await prisma.cardOnFile.upsert({
+        where: { acoAccountId: account.id },
+        update: {
+          cardBrand: parsed.data.cardBrand,
+          last4: getCardLast4(normalizedCardNumber),
+          expMonth: parsed.data.expMonth,
+          expYear: normalizedExpYear,
+          cardholderName: parsed.data.cardholderName,
+        },
+        create: {
+          acoAccountId: account.id,
+          cardBrand: parsed.data.cardBrand,
+          last4: getCardLast4(normalizedCardNumber),
+          expMonth: parsed.data.expMonth,
+          expYear: normalizedExpYear,
+          cardholderName: parsed.data.cardholderName,
+        },
+      });
 
-  return NextResponse.json({ data: sanitizeCardOnFile(card) });
+  return NextResponse.json({
+    data: sanitizeCardOnFile({
+      ...cardRecord,
+      acoAccountId: account.id,
+      retailer: retailer ?? null,
+    }),
+  });
 }

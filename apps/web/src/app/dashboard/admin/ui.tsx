@@ -76,7 +76,7 @@ export default function AdminDashboard() {
   const [status, setStatus] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [selectedRetailers, setSelectedRetailers] = useState<string[]>([]);
-  const [exportingCategory, setExportingCategory] = useState<"hayha" | "stellar" | null>(null);
+  const [exportingCategory, setExportingCategory] = useState<"hayha" | "stellar" | "valor" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [pricingForm, setPricingForm] = useState<PricingRuleFormState>(defaultPricingRuleForm);
   const [pricingStatus, setPricingStatus] = useState<string | null>(null);
@@ -186,9 +186,15 @@ export default function AdminDashboard() {
     );
   }
 
-  async function exportAccountsTxt(category: "hayha" | "stellar") {
+  async function exportAccountsTxt(category: "hayha" | "stellar" | "valor") {
     setExportingCategory(category);
     setExportError(null);
+
+    if (category === "valor" && selectedRetailers.length === 0) {
+      setExportError("Select at least one retailer before exporting Valor accounts.");
+      setExportingCategory(null);
+      return;
+    }
 
     try {
       const params = new URLSearchParams();
@@ -217,7 +223,12 @@ export default function AdminDashboard() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = category === "hayha" ? "hayha-accounts.txt" : "stellar-accounts.txt";
+      anchor.download =
+        category === "hayha"
+          ? "hayha-accounts.txt"
+          : category === "stellar"
+            ? "stellar-accounts.txt"
+            : "valor-accounts.txt";
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -302,6 +313,48 @@ export default function AdminDashboard() {
       URL.revokeObjectURL(url);
     } catch {
       setExportError("Failed to download Hayha accounts JSON.");
+    }
+  }
+
+  async function exportValorJson() {
+    setExportError(null);
+
+    if (selectedRetailers.length === 0) {
+      setExportError("Select at least one retailer before exporting Valor accounts.");
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams();
+      params.set("retailers", selectedRetailers.join(","));
+
+      const response = await fetch(
+        `/api/admin/export/valor-json${params.toString() ? `?${params.toString()}` : ""}`,
+        { credentials: "include" },
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string; detail?: string }
+          | null;
+        const message = payload?.detail
+          ? `${payload?.error ?? "Export failed"}: ${payload.detail}`
+          : payload?.error ?? "Export failed";
+        setExportError(message);
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "valor-accounts.json";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError("Failed to download Valor accounts JSON.");
     }
   }
 
@@ -437,6 +490,14 @@ export default function AdminDashboard() {
           </button>
           <button
             type="button"
+            onClick={() => void exportAccountsTxt("valor")}
+            disabled={exportingCategory !== null || selectedRetailers.length === 0}
+            className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
+          >
+            {exportingCategory === "valor" ? "Exporting Valor..." : "Export Valor (.txt)"}
+          </button>
+          <button
+            type="button"
             onClick={() => void exportHayhaJson()}
             className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
           >
@@ -448,6 +509,14 @@ export default function AdminDashboard() {
             className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
           >
             Export Stellar Accounts (.json)
+          </button>
+          <button
+            type="button"
+            onClick={() => void exportValorJson()}
+            disabled={selectedRetailers.length === 0}
+            className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Export Valor Accounts (.json)
           </button>
         </div>
       </header>
@@ -479,7 +548,7 @@ export default function AdminDashboard() {
         </div>
         <p className="mt-2 text-xs text-[#605E72]">
           {selectedRetailers.length === 0
-            ? "No retailer selected: Hayha exports Target & Bandai; Stellar exports Pokemon Center, Sam's Club & Costco."
+            ? "No retailer selected: select one or more retailers to enable a Valor export."
             : `Selected retailers: ${selectedRetailers.join(", ")}`}
         </p>
         {exportError ? <p className="mt-2 text-xs text-[#FF5D5D]">{exportError}</p> : null}

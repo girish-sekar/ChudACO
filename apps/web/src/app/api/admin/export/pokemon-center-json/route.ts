@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
 import { getGoogleSheetsConfig } from "@/lib/payment-info";
+import { findSheetCardRow } from "@/lib/sheet-card";
 
 const querySchema = z.object({
   retailer: z.string().trim().min(1).optional(),
@@ -201,23 +202,6 @@ async function getGoogleSheetRows(): Promise<string[][]> {
   return (response.data.values ?? []).map((row) => row.map((value) => String(value ?? "")));
 }
 
-function findMatchingSheetRow(sheetRows: string[][], account: { email: string; loginEmail: string | null; botProfileName: string }) {
-  const emailCandidates = [
-    (account.loginEmail ?? account.email ?? "").trim().toLowerCase(),
-    (account.email ?? "").trim().toLowerCase(),
-  ].filter(Boolean);
-  const profileCandidate = (account.botProfileName ?? "").trim().toLowerCase();
-
-  return sheetRows.find((row) => {
-    const rowEmail = (row[0] ?? "").trim().toLowerCase();
-    const rowProfile = (row[1] ?? "").trim().toLowerCase();
-
-    const matchesEmail = emailCandidates.some((email) => email && rowEmail === email);
-    const matchesProfile = Boolean(profileCandidate && rowProfile === profileCandidate);
-    return matchesEmail || matchesProfile;
-  });
-}
-
 export async function GET(request: NextRequest) {
   const authContext = await getAuthenticatedContext();
   if (!authContext) {
@@ -273,6 +257,7 @@ export async function GET(request: NextRequest) {
     orderBy: [{ retailer: "asc" }, { label: "asc" }],
     include: {
       cardOnFile: true,
+      retailerCards: true,
       retailerLogins: true,
     },
   });
@@ -288,7 +273,6 @@ export async function GET(request: NextRequest) {
       );
     })
     .map((account) => {
-      const matchingRow = findMatchingSheetRow(sheetRows, account);
       const shippingName = splitName(account.shippingName ?? account.billingName ?? account.botProfileName ?? "");
       const billingName = splitName(account.billingSameAsShipping ? account.shippingName ?? account.billingName : account.billingName ?? account.shippingName ?? "");
       const shippingAddress = buildAddressBlock(account.shippingAddr, account.shippingCity, account.shippingState, account.shippingZip);
@@ -298,13 +282,24 @@ export async function GET(request: NextRequest) {
         account.billingSameAsShipping ? account.shippingState ?? account.billingState : account.billingState,
         account.billingSameAsShipping ? account.shippingZip ?? account.billingZip : account.billingZip,
       );
+      const selectedRetailer =
+        effectiveRetailerFilters.find((retailer) =>
+          [account.retailer, ...(account.retailerLogins ?? []).map((login) => login.retailer)].some(
+            (value) => value.toLowerCase() === retailer.toLowerCase(),
+          ),
+        ) ?? effectiveRetailerFilters[0];
+      const retailerCard = account.retailerCards.find(
+        (card) => card.retailer.trim().toLowerCase() === selectedRetailer.trim().toLowerCase(),
+      );
+      const selectedCard = retailerCard ?? account.cardOnFile;
+      const matchingRow = findSheetCardRow(sheetRows, account, selectedCard, retailerCard ? selectedRetailer : null);
 
       const sheetCardNumber = matchingRow?.[5] ?? "";
       const sheetCvv = matchingRow?.[8] ?? "";
-      const sheetCardType = matchingRow?.[4] ?? account.cardOnFile?.cardBrand ?? "";
-      const sheetCardholderName = matchingRow?.[3] ?? account.cardOnFile?.cardholderName ?? "";
-      const sheetExpMonth = formatExpMonth(matchingRow?.[6] ?? (account.cardOnFile?.expMonth != null ? String(account.cardOnFile.expMonth) : ""));
-      const sheetExpYear = formatExpYear(matchingRow?.[7] ?? (account.cardOnFile?.expYear != null ? String(account.cardOnFile.expYear) : ""));
+      const sheetCardType = matchingRow?.[4] ?? selectedCard?.cardBrand ?? "";
+      const sheetCardholderName = matchingRow?.[3] ?? selectedCard?.cardholderName ?? "";
+      const sheetExpMonth = formatExpMonth(matchingRow?.[6] ?? (selectedCard?.expMonth != null ? String(selectedCard.expMonth) : ""));
+      const sheetExpYear = formatExpYear(matchingRow?.[7] ?? (selectedCard?.expYear != null ? String(selectedCard.expYear) : ""));
 
       return {
         profileName: account.botProfileName,
@@ -331,8 +326,8 @@ export async function GET(request: NextRequest) {
           zipcode: billingAddress.zipcode,
         },
         payment: {
-          cardName: sheetCardholderName || account.cardOnFile?.cardholderName || (account.billingSameAsShipping ? `${shippingName.firstName} ${shippingName.lastName}`.trim() : `${billingName.firstName} ${billingName.lastName}`.trim()),
-          cardType: sheetCardType || account.cardOnFile?.cardBrand || "",
+          cardName: sheetCardholderName || selectedCard?.cardholderName || (account.billingSameAsShipping ? `${shippingName.firstName} ${shippingName.lastName}`.trim() : `${billingName.firstName} ${billingName.lastName}`.trim()),
+          cardType: sheetCardType || selectedCard?.cardBrand || "",
           cardNumber: sheetCardNumber,
           cardMonth: sheetExpMonth,
           cardYear: sheetExpYear,
@@ -340,6 +335,15 @@ export async function GET(request: NextRequest) {
         },
       };
     });
+
+  const missingCards = payload.filter((profile) => !profile.payment.cardNumber || !profile.payment.cardCvv);
+  if (missingCards.length > 0) {
+    return NextResponse.json({
+      error: "Matching card details are missing. Re-save the assigned card before exporting.",
+      detail: missingCards.map((profile) => profile.profileName).join(", "),
+      profiles: missingCards.map((profile) => profile.profileName),
+    }, { status: 409 });
+  }
 
   return new NextResponse(JSON.stringify(payload, null, 2), {
     status: 200,

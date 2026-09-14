@@ -110,9 +110,8 @@ export default function SetupGuidePage() {
           <section id="adding-account" className="border-b border-[#2C2D3A] pb-10">
             <h2 className="font-heading text-2xl font-semibold">3. Add an ACO account</h2>
             <p className="mt-2 max-w-[68ch] text-[#9C9AAE]">
-              Each ACO account is one retailer login. We currently support Target, Pokemon Center, Sam's Club, Costco, and Bandai, with a limit of 2 accounts per user for now.
+              Each ACO account is one retailer login. We currently support Target, Pokemon Center, Sam's Club, Costco, and Bandai, with a default limit of 5 accounts per user.
             </p>
-            <p className="mt-4 max-w-[68ch]">This account limit will be increased later.</p>
 
             <h3 className="mt-6 font-heading text-lg font-semibold">Account basics</h3>
             <p className="mt-2 max-w-[68ch] text-[#9C9AAE]">Start with these top-level fields before moving to shipping and payment.</p>
@@ -461,7 +460,7 @@ export default function SetupGuidePage() {
               </div>
               <div>
                 <h3 className="font-heading text-base font-semibold text-[#F2F1F6]">Can I add more than one account for the same retailer?</h3>
-                <p className="mt-1">Yes, as long as you stay within the current 2-account total limit.</p>
+                <p className="mt-1">Yes, as long as you stay within the current 5-account total limit.</p>
               </div>
               <div>
                 <h3 className="font-heading text-base font-semibold text-[#F2F1F6]">I changed my Discord username. Do I need to do anything?</h3>

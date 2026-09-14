@@ -118,6 +118,7 @@ model AcoAccount {
   checkouts         Checkout[]
   cardOnFile        CardOnFile?
   retailerLogins    AcoRetailerLogin[]
+  retailerCards     AcoRetailerCard[]
 
   @@unique([userId, accountNumber])
 }
@@ -152,6 +153,22 @@ model CardOnFile {
   expYear        Int?
   cardholderName String?
   updatedAt      DateTime   @updatedAt
+}
+
+model AcoRetailerCard {
+  id             String     @id @default(cuid())
+  acoAccountId   String
+  acoAccount     AcoAccount @relation(fields: [acoAccountId], references: [id], onDelete: Cascade)
+  retailer       String
+  cardBrand      String?
+  last4          String?
+  expMonth       Int?
+  expYear        Int?
+  cardholderName String?
+  updatedAt      DateTime   @updatedAt
+
+  @@unique([acoAccountId, retailer])
+  @@index([acoAccountId])
 }
 
 model PaymentMethod {

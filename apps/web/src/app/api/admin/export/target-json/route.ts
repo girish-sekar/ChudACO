@@ -253,6 +253,7 @@ export async function GET(request: NextRequest) {
     orderBy: [{ retailer: "asc" }, { label: "asc" }],
     include: {
       cardOnFile: true,
+      retailerCards: true,
       retailerLogins: true,
     },
   });
@@ -272,12 +273,21 @@ export async function GET(request: NextRequest) {
       const matchingRow = findMatchingSheetRow(sheetRows, account);
       const shippingName = splitName(account.shippingName ?? account.billingName ?? account.botProfileName ?? "");
       const address = splitAddress(account.shippingAddr);
+      const selectedRetailer =
+        effectiveRetailerFilters.find((retailer) =>
+          [account.retailer, ...(account.retailerLogins ?? []).map((login) => login.retailer)].some(
+            (value) => value.toLowerCase() === retailer.toLowerCase(),
+          ),
+        ) ?? effectiveRetailerFilters[0];
+      const selectedCard =
+        account.retailerCards.find((card) => card.retailer.toLowerCase() === selectedRetailer.toLowerCase()) ??
+        account.cardOnFile;
 
       const sheetCardNumber = matchingRow?.[5] ?? "";
       const sheetCvv = matchingRow?.[8] ?? "";
-      const sheetCardholderName = matchingRow?.[3] ?? account.cardOnFile?.cardholderName ?? "";
-      const sheetExpMonth = formatExpMonth(matchingRow?.[6] ?? (account.cardOnFile?.expMonth != null ? String(account.cardOnFile.expMonth) : ""));
-      const sheetExpYear = formatExpYear(matchingRow?.[7] ?? (account.cardOnFile?.expYear != null ? String(account.cardOnFile.expYear) : ""));
+      const sheetCardholderName = matchingRow?.[3] ?? selectedCard?.cardholderName ?? "";
+      const sheetExpMonth = formatExpMonth(matchingRow?.[6] ?? (selectedCard?.expMonth != null ? String(selectedCard.expMonth) : ""));
+      const sheetExpYear = formatExpYear(matchingRow?.[7] ?? (selectedCard?.expYear != null ? String(selectedCard.expYear) : ""));
 
       const sheetProfileName = matchingRow?.[1] ?? account.botProfileName;
 
@@ -297,7 +307,7 @@ export async function GET(request: NextRequest) {
         },
         cardInfo: {
           cardNumber: sheetCardNumber,
-          holder: sheetCardholderName || account.cardOnFile?.cardholderName || "",
+          holder: sheetCardholderName || selectedCard?.cardholderName || "",
           expMonth: sheetExpMonth,
           expYear: sheetExpYear,
           cvv: sheetCvv,

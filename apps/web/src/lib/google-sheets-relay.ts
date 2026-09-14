@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { getGoogleSheetsConfig } from "@/lib/payment-info";
+import { parseSheetCardMetadata } from "@/lib/sheet-card";
 
 const SHEET_ROW_WIDTH = 30;
 
@@ -16,16 +17,7 @@ function matchesAccountId(raw: string, accountId: string): boolean {
     return false;
   }
 
-  if (raw === accountId || raw.includes(accountId)) {
-    return true;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as { acoAccountId?: string };
-    return parsed.acoAccountId === accountId;
-  } catch {
-    return false;
-  }
+  return parseSheetCardMetadata(raw).acoAccountId === accountId;
 }
 
 function splitAddressLines(value: string | null | undefined) {
@@ -63,7 +55,7 @@ async function getSheetIdForName(): Promise<number> {
   return match.properties.sheetId;
 }
 
-async function getMatchingRowNumbers(accountId: string): Promise<number[]> {
+async function getMatchingRowNumbers(accountId: string, retailer?: string | null): Promise<number[]> {
   const { sheets, spreadsheetId, sheetName } = await getSheetsClient();
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
@@ -75,7 +67,9 @@ async function getMatchingRowNumbers(accountId: string): Promise<number[]> {
 
   for (let i = 0; i < values.length; i += 1) {
     const raw = String(values[i]?.[0] ?? "").trim();
-    if (matchesAccountId(raw, accountId)) {
+    const scopeMatches = retailer === undefined ||
+      (parseSheetCardMetadata(raw).retailer ?? "").trim().toLowerCase() === (retailer ?? "").trim().toLowerCase();
+    if (matchesAccountId(raw, accountId) && scopeMatches) {
       rowNumbers.push(i + 2);
     }
   }
@@ -97,7 +91,8 @@ async function getRowValues(rowNumber: number): Promise<string[]> {
 export async function upsertGoogleSheetAccountRow(accountId: string, rowValues: string[]) {
   const { sheets, spreadsheetId, sheetName } = await getSheetsClient();
   const normalizedRowValues = ensureRowWidth(rowValues);
-  const matchingRows = await getMatchingRowNumbers(accountId);
+  const retailer = parseSheetCardMetadata(normalizedRowValues[28]).retailer ?? null;
+  const matchingRows = await getMatchingRowNumbers(accountId, retailer);
 
   if (matchingRows.length === 0) {
     await sheets.spreadsheets.values.append({
@@ -142,10 +137,10 @@ export async function upsertGoogleSheetAccountRow(accountId: string, rowValues: 
   }
 }
 
-export async function deleteGoogleSheetRowsForAccount(accountId: string): Promise<number> {
+export async function deleteGoogleSheetRowsForAccount(accountId: string, retailer?: string | null): Promise<number> {
   const { sheets, spreadsheetId } = await getSheetsClient();
   const sheetId = await getSheetIdForName();
-  const matchingRows = await getMatchingRowNumbers(accountId);
+  const matchingRows = await getMatchingRowNumbers(accountId, retailer);
 
   if (matchingRows.length === 0) {
     return 0;
@@ -191,35 +186,16 @@ export async function upsertGoogleSheetAccountRowMerged(
     return;
   }
 
-  const targetRow = matchingRows[0];
-  const currentRow = await getRowValues(targetRow);
-  const nextRow = ensureRowWidth(merge(currentRow));
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${sheetName}!A${targetRow}:AD${targetRow}`,
-    valueInputOption: "USER_ENTERED",
-    requestBody: {
-      values: [nextRow],
-    },
-  });
-
-  if (matchingRows.length > 1) {
-    const sheetId = await getSheetIdForName();
-    const duplicateRows = matchingRows.slice(1).sort((a, b) => b - a);
-    await sheets.spreadsheets.batchUpdate({
+  for (const targetRow of matchingRows) {
+    const currentRow = await getRowValues(targetRow);
+    const nextRow = ensureRowWidth(merge(currentRow));
+    nextRow[28] = currentRow[28];
+    await sheets.spreadsheets.values.update({
       spreadsheetId,
+      range: `${sheetName}!A${targetRow}:AD${targetRow}`,
+      valueInputOption: "USER_ENTERED",
       requestBody: {
-        requests: duplicateRows.map((rowNumber) => ({
-          deleteDimension: {
-            range: {
-              sheetId,
-              dimension: "ROWS",
-              startIndex: rowNumber - 1,
-              endIndex: rowNumber,
-            },
-          },
-        })),
+        values: [nextRow],
       },
     });
   }

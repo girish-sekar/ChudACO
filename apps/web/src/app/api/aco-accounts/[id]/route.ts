@@ -419,6 +419,7 @@ export async function DELETE(_request: Request, context: RouteParams) {
   }
 
   await prisma.$transaction([
+    prisma.acoRetailerCard.deleteMany({ where: { acoAccountId: context.params.id } }),
     prisma.cardOnFile.deleteMany({ where: { acoAccountId: context.params.id } }),
     prisma.acoAccount.delete({ where: { id: context.params.id } }),
   ]);

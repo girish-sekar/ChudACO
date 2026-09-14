@@ -60,6 +60,7 @@ export const DEFAULT_RETAILERS = [
   "Sam's Club",
   "Costco",
   "Bandai",
+  "Valor",
 ] as const;
 
 
@@ -97,11 +98,33 @@ export type AcoAccount = {
     retailer: string;
     loginEmail: string;
   }[];
+  retailerCards?: {
+    id: string;
+    retailer: string;
+    cardBrand: string | null;
+    last4: string | null;
+    expMonth: number | null;
+    expYear: number | null;
+    cardholderName: string | null;
+    updatedAt: string;
+  }[];
 };
 
 export type CardOnFile = {
   id: string;
   acoAccountId: string;
+  cardBrand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+  cardholderName: string | null;
+  updatedAt: string;
+};
+
+export type RetailerCard = {
+  id: string;
+  acoAccountId: string;
+  retailer: string;
   cardBrand: string | null;
   last4: string | null;
   expMonth: number | null;

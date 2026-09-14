@@ -32,6 +32,16 @@ type StatusBanner = {
   pulse?: boolean;
 };
 
+type PaymentCardRow = {
+  retailer: string;
+  cardholderName: string;
+  cardBrand: string;
+  cardNumber: string;
+  expMonth: string;
+  expYear: string;
+  cvv: string;
+};
+
 type FormState = {
   label: string;
   email: string;
@@ -64,12 +74,8 @@ type FormState = {
   imapSecurity: string;
   password: string;
   status: "active" | "locked" | "banned";
-  cardholderName: string;
-  cardBrand: string;
-  cardNumber: string;
-  expMonth: string;
-  expYear: string;
-  cvv: string;
+  paymentCards: PaymentCardRow[];
+  paymentRetailer: string;
 };
 
 function toSafeNumber(value: string): number {
@@ -119,12 +125,18 @@ const defaultFormState: FormState = {
   imapSecurity: "SSL/TLS",
   password: "",
   status: "active",
-  cardholderName: "",
-  cardBrand: "",
-  cardNumber: "",
-  expMonth: "",
-  expYear: "",
-  cvv: "",
+  paymentCards: [
+    {
+      retailer: "",
+      cardholderName: "",
+      cardBrand: "",
+      cardNumber: "",
+      expMonth: "",
+      expYear: "",
+      cvv: "",
+    },
+  ],
+  paymentRetailer: "",
 };
 
 function normalizeEmailProvider(value: string | null | undefined): keyof typeof EMAIL_PROVIDER_HOSTS | "" {
@@ -176,7 +188,7 @@ export default function AccountsPage() {
 
   const [cardByAccount, setCardByAccount] = useState<Record<string, CardOnFile | null>>({});
 
-  const maxAccountsPerUser = data?.meta?.maxAccountsPerUser ?? 2;
+  const maxAccountsPerUser = data?.meta?.maxAccountsPerUser ?? 5;
   const currentAccounts = data?.meta?.currentAccounts ?? data?.data?.length ?? 0;
   const isCreateLimitReached = editingId === null && currentAccounts >= maxAccountsPerUser;
 
@@ -240,6 +252,31 @@ export default function AccountsPage() {
     setEditingId(account.id);
     const normalizedProvider = normalizeEmailProvider(account.emailProvider);
     const card = cardByAccount[account.id];
+    const retailerCards = (account.retailerCards ?? []).map((entry) => ({
+      retailer: entry.retailer,
+      cardholderName: entry.cardholderName ?? "",
+      cardBrand: entry.cardBrand ?? "",
+      cardNumber: "",
+      expMonth: entry.expMonth ? String(entry.expMonth).padStart(2, "0") : "",
+      expYear: entry.expYear ? String(entry.expYear) : "",
+      cvv: "",
+    }));
+
+    const paymentCardRows = [
+      ...(card
+        ? [{
+            retailer: "",
+            cardholderName: card.cardholderName ?? "",
+            cardBrand: card.cardBrand ?? "",
+            cardNumber: "",
+            expMonth: card.expMonth ? String(card.expMonth).padStart(2, "0") : "",
+            expYear: card.expYear ? String(card.expYear) : "",
+            cvv: "",
+          }]
+        : []),
+      ...retailerCards,
+    ];
+
     setFormState({
       label: account.label,
       email: account.email,
@@ -284,12 +321,18 @@ export default function AccountsPage() {
       imapSecurity: account.imapSecurity,
       password: "",
       status: account.status,
-      cardholderName: card?.cardholderName ?? "",
-      cardBrand: card?.cardBrand ?? "",
-      cardNumber: "",
-      expMonth: card?.expMonth ? String(card.expMonth).padStart(2, "0") : "",
-      expYear: card?.expYear ? String(card.expYear) : "",
-      cvv: "",
+      paymentCards: paymentCardRows.length > 0 ? paymentCardRows : [
+        {
+          retailer: "",
+          cardholderName: card?.cardholderName ?? "",
+          cardBrand: card?.cardBrand ?? "",
+          cardNumber: "",
+          expMonth: card?.expMonth ? String(card.expMonth).padStart(2, "0") : "",
+          expYear: card?.expYear ? String(card.expYear) : "",
+          cvv: "",
+        },
+      ],
+      paymentRetailer: "",
     });
     setShowForm(true);
     if (typeof window !== "undefined") {
@@ -314,6 +357,46 @@ export default function AccountsPage() {
     setFormState((current) => ({
       ...current,
       retailerLogins: [...current.retailerLogins, { retailer: "", loginEmail: "", loginPassword: "" }],
+    }));
+  }
+
+  function addPaymentCardRow() {
+    setFormState((current) => ({
+      ...current,
+      paymentCards: [
+        ...current.paymentCards,
+        {
+          retailer: "",
+          cardholderName: "",
+          cardBrand: "",
+          cardNumber: "",
+          expMonth: "",
+          expYear: "",
+          cvv: "",
+        },
+      ],
+    }));
+  }
+
+  function removePaymentCardRow(index: number) {
+    setFormState((current) => {
+      if (current.paymentCards.length <= 1) {
+        return current;
+      }
+
+      return {
+        ...current,
+        paymentCards: current.paymentCards.filter((_, entryIndex) => entryIndex !== index),
+      };
+    });
+  }
+
+  function updatePaymentCardField(index: number, field: keyof PaymentCardRow, value: string) {
+    setFormState((current) => ({
+      ...current,
+      paymentCards: current.paymentCards.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, [field]: value } : entry,
+      ),
     }));
   }
 
@@ -362,6 +445,51 @@ export default function AccountsPage() {
       setIsSubmitting(false);
       setStatusBanner({ message: "Please select a retailer from the dropdown for each login entry.", tone: "error" });
       return;
+    }
+
+    const paymentCards = formState.paymentCards.filter((entry) =>
+      entry.retailer.trim() || entry.cardholderName.trim() || entry.cardBrand.trim() || entry.cardNumber.trim() || entry.expMonth.trim() || entry.expYear.trim() || entry.cvv.trim(),
+    );
+
+    const hasDefaultCard = paymentCards.some((entry) => !entry.retailer.trim());
+    const retailersNeedingCards = cleanedRetailerLogins
+      .map((entry) => entry.retailer.toLowerCase())
+      .filter((retailer, index, arr) => arr.indexOf(retailer) === index);
+    const uncoveredRetailers = retailersNeedingCards.filter(
+      (retailer) =>
+        !paymentCards.some((entry) => entry.retailer.trim().toLowerCase() === retailer),
+    );
+
+    if (paymentCards.length === 0) {
+      setIsSubmitting(false);
+      setStatusBanner({ message: "Add at least one payment card or leave the default card blank.", tone: "error" });
+      return;
+    }
+
+    if (!hasDefaultCard && uncoveredRetailers.length > 0) {
+      setIsSubmitting(false);
+      setStatusBanner({
+        message: `Add a default card or cover every retailer card entry: ${uncoveredRetailers.join(", ")}.`,
+        tone: "error",
+      });
+      return;
+    }
+
+    for (const [index, row] of paymentCards.entries()) {
+      const hasAnyCardInfo =
+        row.cardholderName.trim() || row.cardBrand.trim() || row.cardNumber.trim() || row.expMonth.trim() || row.expYear.trim() || row.cvv.trim();
+      const hasNewCardFields = row.cardNumber.trim().length > 0 || row.cvv.trim().length > 0;
+
+      if (!hasAnyCardInfo || !hasNewCardFields) continue;
+
+      if (!row.cardholderName.trim() || !row.cardBrand.trim() || !row.cardNumber.trim() || !row.expMonth.trim() || !row.expYear.trim() || !row.cvv.trim()) {
+        setIsSubmitting(false);
+        setStatusBanner({
+          message: `Payment card ${index + 1} is incomplete. Fill in cardholder, brand, number, expiry, and CVV.`,
+          tone: "error",
+        });
+        return;
+      }
     }
 
     const firstRetailLogin = cleanedRetailerLogins[0];
@@ -431,34 +559,77 @@ export default function AccountsPage() {
 
     const savedAccountId = editingId ?? body?.data?.id;
 
-    if (savedAccountId && formState.cardNumber.trim()) {
-      const paymentPayload = {
-        cardNumber: formState.cardNumber,
-        expMonth: toSafeNumber(formState.expMonth),
-        expYear: toSafeNumber(formState.expYear),
-        cvv: formState.cvv,
-        cardholderName: formState.cardholderName,
-        cardBrand: formState.cardBrand,
-      };
+    if (savedAccountId) {
+      const paymentRowsToSave = formState.paymentCards.filter(
+        (entry) => entry.cardNumber.trim().length > 0 || entry.cvv.trim().length > 0,
+      );
 
-      try {
-        const paymentResponse = await fetch(`/api/aco-accounts/${savedAccountId}/payment-info`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(paymentPayload),
-        });
+      for (const entry of paymentRowsToSave) {
+        const paymentPayload = {
+          cardNumber: entry.cardNumber,
+          expMonth: toSafeNumber(entry.expMonth),
+          expYear: toSafeNumber(entry.expYear),
+          cvv: entry.cvv,
+          cardholderName: entry.cardholderName,
+          cardBrand: entry.cardBrand,
+          retailer: entry.retailer || undefined,
+        };
 
-        const paymentBody = (await paymentResponse.json().catch(() => null)) as
-          | { data?: CardOnFile; error?: string }
-          | null;
+        try {
+          const paymentResponse = await fetch(`/api/aco-accounts/${savedAccountId}/payment-info`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(paymentPayload),
+          });
 
-        if (paymentResponse.ok && paymentBody?.data) {
-          setCardByAccount((current) => ({ ...current, [savedAccountId]: paymentBody.data ?? null }));
-        } else if (paymentBody?.error) {
-          console.warn("Payment info save warning:", paymentBody.error);
+          const paymentBody = (await paymentResponse.json().catch(() => null)) as
+            | { data?: CardOnFile; error?: string }
+            | null;
+
+          if (paymentResponse.ok && paymentBody?.data) {
+            if (!entry.retailer.trim()) {
+              setCardByAccount((current) => ({ ...current, [savedAccountId]: paymentBody.data ?? null }));
+            }
+          } else {
+            throw new Error(paymentBody?.error ?? "Failed to save payment card.");
+          }
+        } catch (err) {
+          setIsSubmitting(false);
+          setStatusBanner({ message: err instanceof Error ? err.message : "Failed to save payment card.", tone: "error" });
+          return;
         }
-      } catch (err) {
-        console.warn("Failed to relay payment info:", err);
+      }
+
+      if (editingId) {
+        const originalAccount = data?.data.find((account) => account.id === editingId);
+        const savedScopes = [
+          ...(cardByAccount[editingId] ? [""] : []),
+          ...(originalAccount?.retailerCards ?? []).map((card) => card.retailer),
+        ];
+        const removedScopes = savedScopes.filter((scope) => !paymentCards.some(
+          (card) => card.retailer.trim().toLowerCase() === scope.trim().toLowerCase(),
+        ));
+
+        try {
+          for (const scope of removedScopes) {
+            const deleteResponse = await fetch(`/api/aco-accounts/${savedAccountId}/payment-info`, {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ retailer: scope || null }),
+            });
+            if (!deleteResponse.ok) {
+              const errorBody = await deleteResponse.json().catch(() => null);
+              throw new Error(errorBody?.error ?? "Failed to remove payment card. Please retry saving.");
+            }
+            if (!scope) {
+              setCardByAccount((current) => ({ ...current, [savedAccountId]: null }));
+            }
+          }
+        } catch (err) {
+          setIsSubmitting(false);
+          setStatusBanner({ message: err instanceof Error ? err.message : "Failed to remove payment card.", tone: "error" });
+          return;
+        }
       }
     }
 
@@ -947,74 +1118,106 @@ export default function AccountsPage() {
 
           {/* 5. Payment Method in the same panel at bottom */}
           <div className="space-y-1 pt-1 md:col-span-2">
-            <h3 className="font-heading text-base font-semibold text-[#F2F1F6]">Payment Method</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-heading text-base font-semibold text-[#F2F1F6]">Payment Cards</h3>
+              <button
+                type="button"
+                onClick={addPaymentCardRow}
+                className="rounded-md border border-[#2C2D3A] px-2 py-1 text-xs text-[#9C9AAE] hover:text-[#F2F1F6]"
+              >
+                Add card
+              </button>
+            </div>
             <p className="text-xs text-[#9C9AAE]">
-              Card details to relay for auto-checkout and Google Sheets sync.
-              {editingId && cardByAccount[editingId]
-                ? " (Leave card number blank to keep current card on file)"
-                : ""}
+              Add a default card or a retailer-specific override. At least one card must be default, or each retailer must have its own card row.
             </p>
           </div>
-          <input
-            value={formState.cardholderName}
-            onChange={(event) =>
-              setFormState((current) => ({ ...current, cardholderName: event.target.value }))
-            }
-            placeholder="Cardholder name"
-            autoComplete="cc-name"
-            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
-          />
-          <input
-            value={formState.cardBrand}
-            onChange={(event) =>
-              setFormState((current) => ({ ...current, cardBrand: event.target.value }))
-            }
-            placeholder="Card brand (e.g. Visa, Mastercard, Amex)"
-            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
-          />
-          <input
-            value={formState.cardNumber}
-            onChange={(event) =>
-              setFormState((current) => ({ ...current, cardNumber: event.target.value }))
-            }
-            placeholder={
-              editingId && cardByAccount[editingId]?.last4
-                ? `•••• •••• •••• ${cardByAccount[editingId]?.last4} (leave blank to keep current)`
-                : "Card number"
-            }
-            autoComplete="cc-number"
-            className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm md:col-span-2"
-          />
-          <div className="grid grid-cols-3 gap-2 md:col-span-2">
-            <input
-              value={formState.expMonth}
-              onChange={(event) =>
-                setFormState((current) => ({ ...current, expMonth: event.target.value }))
-              }
-              placeholder="Exp Month (MM)"
-              autoComplete="cc-exp-month"
-              className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
-            />
-            <input
-              value={formState.expYear}
-              onChange={(event) =>
-                setFormState((current) => ({ ...current, expYear: event.target.value }))
-              }
-              placeholder="Exp Year (YYYY or YY)"
-              autoComplete="cc-exp-year"
-              className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
-            />
-            <input
-              value={formState.cvv}
-              onChange={(event) =>
-                setFormState((current) => ({ ...current, cvv: event.target.value }))
-              }
-              placeholder="CVV"
-              type="password"
-              autoComplete="cc-csc"
-              className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm"
-            />
-          </div>
+
+          {formState.paymentCards.map((card, index) => (
+            <div key={index} className="space-y-2 rounded-md border border-[#2C2D3A] bg-[#101014] p-3 md:col-span-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex-1">
+                  <label className="mb-1 block text-xs uppercase tracking-[0.08em] text-[#605E72]">
+                    Use this card for
+                  </label>
+                  <select
+                    value={card.retailer}
+                    onChange={(event) => updatePaymentCardField(index, "retailer", event.target.value)}
+                    className="w-full rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm text-[#F2F1F6]"
+                  >
+                    <option value="">Default account card</option>
+                    {retailerOptions.map((retailerName) => (
+                      <option key={retailerName} value={retailerName}>
+                        {retailerName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {formState.paymentCards.length > 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => removePaymentCardRow(index)}
+                    className="rounded-md border border-[#5A2323] px-2 py-2 text-xs text-[#FF9A9A] hover:text-[#FFD1D1]"
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="grid gap-2 md:grid-cols-2">
+                <input
+                  value={card.cardholderName}
+                  onChange={(event) => updatePaymentCardField(index, "cardholderName", event.target.value)}
+                  placeholder="Cardholder name"
+                  autoComplete="cc-name"
+                  className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                />
+                <input
+                  value={card.cardBrand}
+                  onChange={(event) => updatePaymentCardField(index, "cardBrand", event.target.value)}
+                  placeholder="Card brand (e.g. Visa, Mastercard, Amex)"
+                  className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                />
+              </div>
+
+              <input
+                value={card.cardNumber}
+                onChange={(event) => updatePaymentCardField(index, "cardNumber", event.target.value)}
+                placeholder={
+                  editingId && cardByAccount[editingId]?.last4 && !card.retailer
+                    ? `•••• •••• •••• ${cardByAccount[editingId]?.last4} (leave blank to keep current)`
+                    : "Card number"
+                }
+                autoComplete="cc-number"
+                className="w-full rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+              />
+
+              <div className="grid grid-cols-3 gap-2">
+                <input
+                  value={card.expMonth}
+                  onChange={(event) => updatePaymentCardField(index, "expMonth", event.target.value)}
+                  placeholder="Exp Month (MM)"
+                  autoComplete="cc-exp-month"
+                  className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                />
+                <input
+                  value={card.expYear}
+                  onChange={(event) => updatePaymentCardField(index, "expYear", event.target.value)}
+                  placeholder="Exp Year (YYYY or YY)"
+                  autoComplete="cc-exp-year"
+                  className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                />
+                <input
+                  value={card.cvv}
+                  onChange={(event) => updatePaymentCardField(index, "cvv", event.target.value)}
+                  placeholder="CVV"
+                  type="password"
+                  autoComplete="cc-csc"
+                  className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+          ))}
 
           <div className="flex flex-col gap-3 pt-2 md:col-span-2 md:flex-row">
             <button
@@ -1066,6 +1269,14 @@ export default function AccountsPage() {
           const retailerLoginEmails = account.retailerLogins
             .map((entry) => entry.loginEmail)
             .join(", ");
+          const allCardSummaries = [
+            card
+              ? `Default: ${card.cardBrand ?? "Card"} •••• ${card.last4 ?? "----"} (${card.expMonth ?? "--"}/${card.expYear ?? "----"})`
+              : null,
+            ...(account.retailerCards ?? []).map((entry) =>
+              `${entry.retailer}: ${entry.cardBrand ?? "Card"} •••• ${entry.last4 ?? "----"} (${entry.expMonth ?? "--"}/${entry.expYear ?? "----"})`,
+            ),
+          ].filter(Boolean);
 
           return (
             <article key={account.id} className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
@@ -1106,10 +1317,7 @@ export default function AccountsPage() {
                   Billing: {account.billingSameAsShipping ? "same as shipping" : `${account.billingName ?? "N/A"} • ${account.billingAddr ?? "N/A"}`}
                 </p>
                 <p>
-                  Card on file:{" "}
-                  {card
-                    ? `${card.cardBrand ?? "Card"} •••• ${card.last4 ?? "----"} (${card.expMonth ?? "--"}/${card.expYear ?? "----"})`
-                    : "None"}
+                  Cards on file: {allCardSummaries.length > 0 ? allCardSummaries.join(" | ") : "None"}
                 </p>
                 <p className="text-xs text-[#605E72]">
                   Last sync: {account.lastSyncAt ? formatDate(account.lastSyncAt) : "never"}

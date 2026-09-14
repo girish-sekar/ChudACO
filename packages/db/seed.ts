@@ -52,6 +52,7 @@ async function main() {
       { name: "Sam's Club", isActive: true, sortOrder: 3 },
       { name: "Costco", isActive: true, sortOrder: 4 },
       { name: "Bandai", isActive: true, sortOrder: 5 },
+      { name: "Valor", isActive: true, sortOrder: 6 },
     ],
   });
 
