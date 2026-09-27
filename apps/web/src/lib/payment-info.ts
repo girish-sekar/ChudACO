@@ -1,9 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { CARD_BRAND_OPTIONS } from "@/lib/card-brand";
 
 const currentYear = new Date().getFullYear();
 const currentMonth = new Date().getMonth() + 1;
+
+export { CARD_BRAND_OPTIONS, normalizeCardBrand, type CardBrand } from "@/lib/card-brand";
 
 export function normalizeExpirationYear(value: number): number {
   if (value < 100) {
@@ -25,7 +28,7 @@ export const paymentInfoSchema = z
     expYear: z.coerce.number().int().min(0).max(9999),
     cvv: z.string().trim().regex(/^\d{3,4}$/, "CVV must be 3 or 4 digits"),
     cardholderName: z.string().trim().min(1).max(120),
-    cardBrand: z.string().trim().min(1).max(50),
+    cardBrand: z.enum(CARD_BRAND_OPTIONS),
   })
   .superRefine((value, ctx) => {
     const normalizedYear = normalizeExpirationYear(value.expYear);

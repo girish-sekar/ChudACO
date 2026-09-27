@@ -71,7 +71,7 @@ export type AcoAccount = {
   botProfileName: string;
   label: string;
   retailer: string;
-  email: string;
+  email: string | null;
   emailProvider: string | null;
   onlyOneCheckout: boolean;
   loginEmail: string | null;
@@ -89,14 +89,16 @@ export type AcoAccount = {
   billingState: string | null;
   billingZip: string | null;
   status: "active" | "locked" | "banned";
-  imapHost: string;
+  imapHost: string | null;
   imapPort: number;
   imapSecurity: string;
+  imapConfigured: boolean;
   lastSyncAt: string | null;
   retailerLogins: {
     id: string;
     retailer: string;
     loginEmail: string;
+    enabled: boolean;
   }[];
   retailerCards?: {
     id: string;
@@ -193,7 +195,81 @@ export type Profile = {
   notifyOnSuccess: boolean;
   notifyOnFailure: boolean;
   notifyWeeklySummary: boolean;
+  accountManagementMode: "classic" | "modular";
   createdAt: string;
+};
+
+export type DropSummaryTotals = {
+  successfulCheckouts: number;
+  totalDollarVolume: string;
+  averageOrderValue: string;
+  uniqueBuyers: number;
+  uniqueRetailers: number;
+};
+
+export type DropSummaryRetailerRow = {
+  retailer: string;
+  count: number;
+  volume: string;
+};
+
+export type DropSummaryItemRow = {
+  item: string;
+  count: number;
+  volume: string;
+};
+
+export type DropSummaryDayRow = {
+  date: string;
+  count: number;
+  volume: string;
+};
+
+export type DropSummaryBuyerRow = {
+  userId: string;
+  username: string;
+  count: number;
+  volume: string;
+};
+
+export type DropSummaryGapRow = {
+  messageId: string;
+  occurredAt: string;
+  profile: string;
+  item: string;
+  quantity: string;
+  price: string;
+  retailer: string | null;
+  userId: string | null;
+  username: string;
+  resolved: boolean;
+};
+
+export type DropSummaryReconciliation =
+  | { configured: false }
+  | {
+      configured: true;
+      error: string | null;
+      likelyMissingMessageContentIntent: boolean;
+      discordMessagesScanned: number;
+      successMessagesFound: number;
+      matchedInDatabase: number;
+      gapCount: number;
+      gapVolume: string;
+      resolvedGapCount: number;
+      unresolvedGapCount: number;
+      gaps: DropSummaryGapRow[];
+    };
+
+export type DropSummaryResponse = {
+  range: { from: string; to: string };
+  totals: DropSummaryTotals;
+  byRetailer: DropSummaryRetailerRow[];
+  byItem: DropSummaryItemRow[];
+  byDay: DropSummaryDayRow[];
+  topBuyers: DropSummaryBuyerRow[];
+  recent: AdminCheckoutRow[];
+  reconciliation: DropSummaryReconciliation;
 };
 
 export async function fetchJson<T>(url: string): Promise<T> {

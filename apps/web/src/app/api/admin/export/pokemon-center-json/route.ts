@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
+import { resolveExportEmail } from "@/lib/export-email";
 import { getGoogleSheetsConfig } from "@/lib/payment-info";
 import { findSheetCardRow } from "@/lib/sheet-card";
 
@@ -192,8 +193,7 @@ async function getGoogleSheetRows(): Promise<string[][]> {
     keyFile: keyPath,
     scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
   });
-  const authClient = await auth.getClient();
-  const sheets = google.sheets({ version: "v4", auth: authClient as any });
+  const sheets = google.sheets({ version: "v4", auth });
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: `${sheetName}!A:AD`,
@@ -263,12 +263,19 @@ export async function GET(request: NextRequest) {
   });
 
   const sheetRows = await getGoogleSheetRows();
-  const payload = accounts
+
+  // Drop disabled retailer logins before any matching/selection logic runs.
+  const accountsWithEnabledLogins = accounts.map((account) => ({
+    ...account,
+    retailerLogins: (account.retailerLogins.length > 0
+      ? account.retailerLogins
+      : [{ retailer: account.retailer, loginEmail: account.loginEmail, enabled: true }]
+    ).filter((login) => login.enabled !== false),
+  }));
+
+  const payload = accountsWithEnabledLogins
     .filter((account) => {
-      const logins = account.retailerLogins.length > 0
-        ? account.retailerLogins
-        : [{ retailer: account.retailer }];
-      return logins.some((l) =>
+      return account.retailerLogins.some((l) =>
         effectiveRetailerFilters.some((rf) => rf.toLowerCase() === l.retailer.toLowerCase())
       );
     })
@@ -284,9 +291,7 @@ export async function GET(request: NextRequest) {
       );
       const selectedRetailer =
         effectiveRetailerFilters.find((retailer) =>
-          [account.retailer, ...(account.retailerLogins ?? []).map((login) => login.retailer)].some(
-            (value) => value.toLowerCase() === retailer.toLowerCase(),
-          ),
+          account.retailerLogins.some((login) => login.retailer.toLowerCase() === retailer.toLowerCase()),
         ) ?? effectiveRetailerFilters[0];
       const retailerCard = account.retailerCards.find(
         (card) => card.retailer.trim().toLowerCase() === selectedRetailer.trim().toLowerCase(),
@@ -303,7 +308,7 @@ export async function GET(request: NextRequest) {
 
       return {
         profileName: account.botProfileName,
-        email: account.email,
+        email: resolveExportEmail(account, selectedRetailer),
         phone: formatPhone(account.shippingPhone ?? account.billingPhone),
         shipping: {
           ...shippingName,

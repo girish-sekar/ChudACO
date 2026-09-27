@@ -10,6 +10,7 @@ export default {
       }
 
       const body = await parseBody(request);
+      console.log("raw body", JSON.stringify(body).slice(0, 1000));
 
       if (isTest(body)) {
         const s = buildTestCheckoutPayload();
@@ -60,7 +61,7 @@ function blob(b) {
   return [b?.title, b?.message, b?.content, b?.status, b?.event, b?.type, b?.result, b?.embeds?.[0]?.title, b?.embeds?.[0]?.description]
     .filter(Boolean).map(v => String(v).toLowerCase()).join(" ");
 }
-function isTest(b) { return /test webhook|testing|webhook test|ping/.test(blob(b)); }
+function isTest(b) { return /test webhook|testing|webhook test|ping|bing bong|configured and working/.test(blob(b)); }
 function isHayhaSuccess(b) { return /successful checkout|way to go|checked out|checkout success|\bsuccess\b/.test(blob(b)); }
 
 function normalizeProfileName(profile) {
@@ -70,7 +71,7 @@ function normalizeProfileName(profile) {
 
 function buildTestCheckoutPayload() {
   return {
-    profile: "||girishsekar8392 - ACO #2||",
+    profile: "||girishsekar8392 - ACO #1||",
     site: "test-site",
     mode: "test-mode",
     item: "Test Item Name",
@@ -104,9 +105,16 @@ function imageOf(b) {
   for (const v of c) if (/^https?:\/\/\S+$/i.test(String(v || "").trim())) return String(v).trim();
   return "";
 }
+// Some bots (e.g. Shikari) only put the item name in the embed description
+// as a markdown link, e.g. "[**Item Name**](https://...)", with no field.
+function itemFromDescription(b) {
+  const desc = String(b?.embeds?.[0]?.description || "");
+  const m = desc.match(/\[\*\*(.+?)\*\*\]\(/) || desc.match(/\[(.+?)\]\(/);
+  return m ? m[1].trim() : "";
+}
 function sanitize(b) {
   const m = fieldsMap(b);
-  const item = pick(b, m, ["item", "product", "title"], ["item", "product"], "unknown");
+  const item = pick(b, m, ["item", "product", "title"], ["item", "product"], "") || itemFromDescription(b) || "unknown";
   const qtyRaw = pick(b, m, ["quantity", "qty"], ["quantity"], "0");
   const qty = Number.isFinite(parseInt(qtyRaw, 10)) ? String(parseInt(qtyRaw, 10)) : "0";
   const profile = normalizeProfileName(pick(b, m, ["profileName", "profile_name", "profile"], ["profile name", "profile"], "unknown"));
@@ -128,7 +136,7 @@ function successPayload(name, s, mentionUserId) {
     color: 5763719,
     fields: [
       { name: "Profile Name", value: s.profile, inline: true },
-      { name: "Mode", value: s.mode, inline: true },
+      // { name: "Mode", value: s.mode, inline: true },
       { name: "Quantity", value: s.quantity, inline: true },
       { name: "Price", value: s.price, inline: true },
       { name: "Item", value: s.item, inline: false }
@@ -160,7 +168,7 @@ function testPayload(name, isDecline, mentionUserId) {
       color: isDecline ? 15105570 : 5763719,
       fields: [
         { name: "Profile Name", value: "girishsekar8392 - ACO #1", inline: true },
-        { name: "Mode", value: "test-mode", inline: true },
+        // { name: "Mode", value: "test-mode", inline: true },
         { name: "Quantity", value: "1", inline: true },
         { name: "Price", value: "$59.99", inline: true },
         { name: "Item", value: "Test Item Name", inline: false }

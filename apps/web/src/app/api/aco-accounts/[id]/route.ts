@@ -9,7 +9,7 @@ import { upsertGoogleSheetShippingFields } from "@/lib/google-sheets-relay";
 const updateAcoAccountSchema = z.object({
   label: z.string().trim().min(1),
   retailer: z.string().trim().min(1),
-  email: z.string().trim().email(),
+  email: z.string().trim().email().nullable().optional(),
   emailProvider: z.string().trim().max(120).nullable().optional(),
   onlyOneCheckout: z.boolean().optional(),
   billingSameAsShipping: z.boolean().optional(),
@@ -20,6 +20,7 @@ const updateAcoAccountSchema = z.object({
         retailer: z.string().trim().min(1),
         loginEmail: z.string().trim().email(),
         loginPassword: z.string().optional(),
+        enabled: z.boolean().optional(),
       }),
     )
     .min(1)
@@ -36,9 +37,9 @@ const updateAcoAccountSchema = z.object({
   billingCity: z.string().trim().max(120).nullable().optional(),
   billingState: z.string().trim().max(120).nullable().optional(),
   billingZip: z.string().trim().max(30).nullable().optional(),
-  imapHost: z.string().trim().min(1),
-  imapPort: z.number().int().min(1).max(65535),
-  imapSecurity: z.string().trim().min(1),
+  imapHost: z.string().trim().min(1).nullable().optional(),
+  imapPort: z.number().int().min(1).max(65535).optional(),
+  imapSecurity: z.string().trim().min(1).optional(),
   password: z.string().optional(),
   loginPassword: z.string().optional(),
   status: z.enum(["active", "locked", "banned"]),
@@ -51,7 +52,7 @@ function sanitizeAcoAccount(account: {
   botProfileName: string;
   label: string;
   retailer: string;
-  email: string;
+  email: string | null;
   emailProvider: string | null;
   onlyOneCheckout: boolean;
   loginEmail: string | null;
@@ -69,7 +70,7 @@ function sanitizeAcoAccount(account: {
   billingState: string | null;
   billingZip: string | null;
   status: string;
-  imapHost: string;
+  imapHost: string | null;
   imapPort: number;
   imapSecurity: string;
   lastSyncAt: Date | null;
@@ -77,6 +78,7 @@ function sanitizeAcoAccount(account: {
     id: string;
     retailer: string;
     loginEmail: string;
+    enabled: boolean;
   }[];
 }) {
   return {
@@ -146,7 +148,7 @@ async function handleUpdate(request: Request, context: RouteParams) {
   const nextData: {
     label: string;
     retailer: string;
-    email: string;
+    email: string | null;
     emailProvider: string | null;
     onlyOneCheckout: boolean;
     loginEmail: string;
@@ -163,19 +165,19 @@ async function handleUpdate(request: Request, context: RouteParams) {
     billingCity: string | null;
     billingState: string | null;
     billingZip: string | null;
-    imapHost: string;
+    imapHost: string | null;
     imapPort: number;
     imapSecurity: string;
     status: "active" | "locked" | "banned";
-    encryptedPassword?: string;
-    encryptionIv?: string;
+    encryptedPassword?: string | null;
+    encryptionIv?: string | null;
     encryptedLoginPassword?: string | null;
     loginPasswordIv?: string | null;
   } = {
     billingSameAsShipping: parsed.data.billingSameAsShipping ?? true,
     label: parsed.data.label,
     retailer: parsed.data.retailer,
-    email: parsed.data.email,
+    email: parsed.data.email ?? null,
     emailProvider: parsed.data.emailProvider ?? null,
     onlyOneCheckout: parsed.data.onlyOneCheckout ?? true,
     loginEmail: parsed.data.loginEmail,
@@ -191,9 +193,9 @@ async function handleUpdate(request: Request, context: RouteParams) {
     billingCity: (parsed.data.billingSameAsShipping ?? true) ? null : (parsed.data.billingCity ?? null),
     billingState: (parsed.data.billingSameAsShipping ?? true) ? null : (parsed.data.billingState ?? null),
     billingZip: (parsed.data.billingSameAsShipping ?? true) ? null : (parsed.data.billingZip ?? null),
-    imapHost: parsed.data.imapHost,
-    imapPort: parsed.data.imapPort,
-    imapSecurity: parsed.data.imapSecurity,
+    imapHost: parsed.data.imapHost ?? null,
+    imapPort: parsed.data.imapPort ?? 993,
+    imapSecurity: parsed.data.imapSecurity ?? "SSL/TLS",
     status: parsed.data.status,
   };
 
@@ -240,6 +242,7 @@ async function handleUpdate(request: Request, context: RouteParams) {
           loginEmail: entry.loginEmail,
           encryptedLoginPassword,
           loginPasswordIv,
+          enabled: entry.enabled ?? existing?.enabled ?? true,
         };
     });
 
@@ -258,6 +261,7 @@ async function handleUpdate(request: Request, context: RouteParams) {
           loginEmail: entry.loginEmail,
           encryptedLoginPassword: entry.encryptedLoginPassword,
           loginPasswordIv: entry.loginPasswordIv,
+          enabled: entry.enabled,
         })),
       });
 
@@ -298,6 +302,7 @@ async function handleUpdate(request: Request, context: RouteParams) {
               id: true,
               retailer: true,
               loginEmail: true,
+              enabled: true,
             },
             orderBy: { retailer: "asc" },
           },
@@ -336,12 +341,14 @@ async function handleUpdate(request: Request, context: RouteParams) {
         imapHost: true,
         imapPort: true,
         imapSecurity: true,
+        encryptedPassword: true,
         lastSyncAt: true,
         retailerLogins: {
           select: {
             id: true,
             retailer: true,
             loginEmail: true,
+            enabled: true,
           },
           orderBy: { retailer: "asc" },
         },

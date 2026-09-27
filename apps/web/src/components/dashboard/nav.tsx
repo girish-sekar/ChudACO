@@ -7,9 +7,11 @@ const links = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/checkouts", label: "Checkouts" },
   { href: "/dashboard/billing", label: "Billing" },
+  { href: "/dashboard/tip", label: "Tip the team" },
   { href: "/dashboard/pricing", label: "Pricing" },
   { href: "/dashboard/accounts", label: "Accounts" },
   { href: "/dashboard/admin", label: "Admin", adminOnly: true },
+  { href: "/dashboard/admin/drop-summary", label: "Drop Summary", adminOnly: true },
   { href: "/dashboard/profile", label: "Profile" },
 ];
 

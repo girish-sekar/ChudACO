@@ -204,7 +204,7 @@ export async function upsertGoogleSheetAccountRowMerged(
 type ShippingSyncInput = {
   accountId: string;
   botProfileName: string;
-  email: string;
+  email: string | null;
   loginEmail: string | null;
   onlyOneCheckout: boolean;
   shippingName: string | null;
@@ -243,7 +243,7 @@ export async function upsertGoogleSheetShippingFields(input: ShippingSyncInput) 
       ? input.shippingZip ?? ""
       : input.billingZip ?? "";
 
-    baseRow[0] = input.email;
+    baseRow[0] = input.email ?? "";
     baseRow[1] = input.botProfileName;
     baseRow[2] = input.onlyOneCheckout ? "TRUE" : "FALSE";
     baseRow[9] = input.billingSameAsShipping ? "TRUE" : "FALSE";

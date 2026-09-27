@@ -16,6 +16,7 @@ model User {
   notifyOnSuccess     Boolean        @default(true)
   notifyOnFailure     Boolean        @default(true)
   notifyWeeklySummary Boolean        @default(false)
+  accountManagementMode String       @default("classic")
   createdAt           DateTime       @default(now())
   checkouts           Checkout[]
   billingEntries      BillingEntry[]
@@ -89,7 +90,7 @@ model AcoAccount {
   botProfileName    String    @unique
   label             String
   retailer          String
-  email             String
+  email             String?
   emailProvider     String?
   onlyOneCheckout   Boolean   @default(true)
   shippingName      String?
@@ -107,11 +108,11 @@ model AcoAccount {
   billingZip        String?
   loginEmail        String?
   status            AcoStatus @default(active)
-  imapHost          String
+  imapHost          String?
   imapPort          Int       @default(993)
   imapSecurity      String    @default("SSL/TLS")
-  encryptedPassword String
-  encryptionIv      String
+  encryptedPassword String?
+  encryptionIv      String?
   encryptedLoginPassword String?
   loginPasswordIv        String?
   lastSyncAt        DateTime?
@@ -131,6 +132,7 @@ model AcoRetailerLogin {
   loginEmail           String
   encryptedLoginPassword String?
   loginPasswordIv      String?
+  enabled              Boolean    @default(true)
   createdAt            DateTime   @default(now())
   updatedAt            DateTime   @updatedAt
 

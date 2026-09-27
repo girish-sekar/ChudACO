@@ -111,9 +111,18 @@ export async function POST(request: Request) {
   }
 
   const data = parsed.data;
-  const parsedPrice = parsePriceToNumber(data.price);
+  // Some bots (e.g. Shikari) don't include a price in their success/decline
+  // webhooks at all. Rather than dropping the checkout entirely, fall back
+  // to 0.00 and flag it below for manual reconciliation.
+  let parsedPrice = parsePriceToNumber(data.price);
   if (parsedPrice === null) {
-    return NextResponse.json({ error: "Invalid price format" }, { status: 400 });
+    console.error("Worker checkout price could not be parsed; defaulting to 0.00 for manual review", {
+      profile: data.profile,
+      site: data.site,
+      item: data.item,
+      price: data.price,
+    });
+    parsedPrice = 0;
   }
 
   const normalizedPrice = parsedPrice.toFixed(2);

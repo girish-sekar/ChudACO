@@ -170,7 +170,7 @@ export async function POST(request: Request, context: RouteParams) {
   }
 
   const profileName = account.botProfileName;
-  const emailAddress = account.loginEmail ?? account.email;
+  const emailAddress = account.loginEmail ?? account.email ?? "";
   const shippingName = account.shippingName ?? "";
   const shippingPhone = account.shippingPhone ?? "";
   const shippingAddress = account.shippingAddr ?? "";

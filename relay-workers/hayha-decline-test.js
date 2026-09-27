@@ -98,9 +98,16 @@ function imageOf(b) {
   for (const v of c) if (/^https?:\/\/\S+$/i.test(String(v || "").trim())) return String(v).trim();
   return "";
 }
+// Some bots (e.g. Shikari) only put the item name in the embed description
+// as a markdown link, e.g. "[**Item Name**](https://...)", with no field.
+function itemFromDescription(b) {
+  const desc = String(b?.embeds?.[0]?.description || "");
+  const m = desc.match(/\[\*\*(.+?)\*\*\]\(/) || desc.match(/\[(.+?)\]\(/);
+  return m ? m[1].trim() : "";
+}
 function sanitize(b) {
   const m = fieldsMap(b);
-  const item = pick(b, m, ["item", "product", "title"], ["item", "product"], "unknown");
+  const item = pick(b, m, ["item", "product", "title"], ["item", "product"], "") || itemFromDescription(b) || "unknown";
   const qtyRaw = pick(b, m, ["quantity", "qty"], ["quantity"], "0");
   const qty = Number.isFinite(parseInt(qtyRaw, 10)) ? String(parseInt(qtyRaw, 10)) : "0";
   const profile = normalizeProfileName(pick(b, m, ["profileName", "profile_name", "profile"], ["profile name", "profile"], "unknown"));

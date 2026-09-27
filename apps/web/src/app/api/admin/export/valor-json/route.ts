@@ -1,7 +1,11 @@
 import { prisma } from "@chudaco/db";
+import { google } from "googleapis";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
+import { resolveExportEmail } from "@/lib/export-email";
+import { getGoogleSheetsConfig } from "@/lib/payment-info";
+import { findSheetCardRow } from "@/lib/sheet-card";
 
 const querySchema = z.object({
   retailer: z.string().trim().min(1).optional(),
@@ -97,6 +101,21 @@ function normalizeCardType(value: string | null | undefined) {
   return type;
 }
 
+async function getGoogleSheetRows(): Promise<string[][]> {
+  const { spreadsheetId, sheetName, keyPath } = getGoogleSheetsConfig();
+  const auth = new google.auth.GoogleAuth({
+    keyFile: keyPath,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+  });
+  const sheets = google.sheets({ version: "v4", auth });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${sheetName}!A:AD`,
+  });
+
+  return (response.data.values ?? []).map((row) => row.map((value) => String(value ?? "")));
+}
+
 export async function GET(request: NextRequest) {
   const authContext = await getAuthenticatedContext();
   if (!authContext) {
@@ -163,24 +182,33 @@ export async function GET(request: NextRequest) {
     },
   });
 
+  const sheetRows = await getGoogleSheetRows();
+
+  // Drop disabled retailer logins before any matching/selection logic runs.
+  const accountsWithEnabledLogins = accounts.map((account) => ({
+    ...account,
+    retailerLogins: (account.retailerLogins.length > 0
+      ? account.retailerLogins
+      : [{ retailer: account.retailer, loginEmail: account.loginEmail, enabled: true }]
+    ).filter((login) => login.enabled !== false),
+  }));
+
   const payload = Object.fromEntries(
-    accounts
+    accountsWithEnabledLogins
       .filter((account) => {
-        const logins = account.retailerLogins.length > 0 ? account.retailerLogins : [{ retailer: account.retailer }];
-        return logins.some((login) =>
+        return account.retailerLogins.some((login) =>
           effectiveRetailerFilters.some((retailer) => retailer.toLowerCase() === login.retailer.toLowerCase()),
         );
       })
       .map((account) => {
         const selectedRetailer =
           effectiveRetailerFilters.find((retailer) =>
-            [account.retailer, ...(account.retailerLogins ?? []).map((login) => login.retailer)].some(
-              (value) => value.toLowerCase() === retailer.toLowerCase(),
-            ),
+            account.retailerLogins.some((login) => login.retailer.toLowerCase() === retailer.toLowerCase()),
           ) ?? effectiveRetailerFilters[0];
         const selectedCard =
           account.retailerCards.find((card) => card.retailer.toLowerCase() === selectedRetailer.toLowerCase()) ??
           account.cardOnFile;
+        const matchingRow = findSheetCardRow(sheetRows, account, selectedCard, selectedCard ? selectedRetailer : null);
 
         const shippingName = splitName(account.shippingName ?? account.billingName ?? account.botProfileName ?? "");
         const billingName = splitName(
@@ -191,15 +219,16 @@ export async function GET(request: NextRequest) {
           account.billingSameAsShipping ? account.shippingAddr ?? account.billingAddr : account.billingAddr,
         );
 
-        const cardNumber = selectedCard?.last4 ? `•••• ${selectedCard.last4}` : "";
-        const cardType = normalizeCardType(selectedCard?.cardBrand ?? "");
-        const cardMonth = formatExpMonth(selectedCard?.expMonth ?? "");
-        const cardYear = formatExpYear(selectedCard?.expYear ?? "");
-        const cardholderName = selectedCard?.cardholderName ?? "";
+        const cardNumber = matchingRow?.[5] ?? (selectedCard?.last4 ? `•••• ${selectedCard.last4}` : "");
+        const cardType = normalizeCardType(matchingRow?.[4] ?? selectedCard?.cardBrand ?? "");
+        const cardMonth = formatExpMonth(matchingRow?.[6] ?? (selectedCard?.expMonth != null ? String(selectedCard.expMonth) : ""));
+        const cardYear = formatExpYear(matchingRow?.[7] ?? (selectedCard?.expYear != null ? String(selectedCard.expYear) : ""));
+        const cardholderName = matchingRow?.[3] ?? selectedCard?.cardholderName ?? "";
+        const cvv = matchingRow?.[8] ?? "";
 
         const item = {
           name: account.botProfileName,
-          email: account.email,
+          email: resolveExportEmail(account, selectedRetailer),
           phoneNumber: formatPhone(account.shippingPhone ?? account.billingPhone),
           billingSameAsShipping: account.billingSameAsShipping,
           oneCheckout: account.onlyOneCheckout,
@@ -208,7 +237,7 @@ export async function GET(request: NextRequest) {
             holder: cardholderName || `${shippingName.firstName} ${shippingName.lastName}`.trim(),
             number: cardNumber,
             expiration: cardMonth && cardYear ? `${cardMonth}/${cardYear.slice(-2)}` : "",
-            cvv: "",
+            cvv,
             type: cardType,
           },
           shipping: {

@@ -86,7 +86,13 @@ async function runPollCycle(): Promise<void> {
   pollInFlight = true;
   try {
     const accounts = await prisma.acoAccount.findMany({
-      where: { status: "active" },
+      where: {
+        status: "active",
+        email: { not: null },
+        imapHost: { not: null },
+        encryptedPassword: { not: null },
+        encryptionIv: { not: null },
+      },
       select: {
         id: true,
         label: true,
@@ -101,8 +107,15 @@ async function runPollCycle(): Promise<void> {
     });
 
     for (const account of accounts) {
+      if (!account.email || !account.imapHost || !account.encryptedPassword || !account.encryptionIv) continue;
       try {
-        await syncAccount(account);
+        await syncAccount({
+          ...account,
+          email: account.email,
+          imapHost: account.imapHost,
+          encryptedPassword: account.encryptedPassword,
+          encryptionIv: account.encryptionIv,
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[imap] sync failed for ${account.label}: ${message}`);

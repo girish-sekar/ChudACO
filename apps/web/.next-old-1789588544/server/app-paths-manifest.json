@@ -1,0 +1,7 @@
+{
+  "/setup-guide/page": "app/setup-guide/page.js",
+  "/dashboard/admin/drop-summary/page": "app/dashboard/admin/drop-summary/page.js",
+  "/dashboard/checkouts/page": "app/dashboard/checkouts/page.js",
+  "/dashboard/billing/page": "app/dashboard/billing/page.js",
+  "/dashboard/accounts/page": "app/dashboard/accounts/page.js"
+}

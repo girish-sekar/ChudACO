@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "AcoRetailerLogin"
+ADD COLUMN IF NOT EXISTS "enabled" BOOLEAN NOT NULL DEFAULT true;

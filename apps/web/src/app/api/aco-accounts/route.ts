@@ -8,7 +8,7 @@ import { upsertGoogleSheetShippingFields } from "@/lib/google-sheets-relay";
 const createAcoAccountSchema = z.object({
   label: z.string().trim().min(1),
   retailer: z.string().trim().min(1),
-  email: z.string().trim().email(),
+  email: z.string().trim().email().nullable().optional(),
   emailProvider: z.string().trim().max(120).nullable().optional(),
   onlyOneCheckout: z.boolean().optional(),
   billingSameAsShipping: z.boolean().optional(),
@@ -19,6 +19,7 @@ const createAcoAccountSchema = z.object({
         retailer: z.string().trim().min(1),
         loginEmail: z.string().trim().email(),
         loginPassword: z.string().optional(),
+        enabled: z.boolean().optional(),
       }),
     )
     .min(1)
@@ -35,10 +36,10 @@ const createAcoAccountSchema = z.object({
   billingCity: z.string().trim().max(120).nullable().optional(),
   billingState: z.string().trim().max(120).nullable().optional(),
   billingZip: z.string().trim().max(30).nullable().optional(),
-  imapHost: z.string().trim().min(1),
-  imapPort: z.number().int().min(1).max(65535),
-  imapSecurity: z.string().trim().min(1),
-  password: z.string().min(1),
+  imapHost: z.string().trim().min(1).nullable().optional(),
+  imapPort: z.number().int().min(1).max(65535).optional(),
+  imapSecurity: z.string().trim().min(1).optional(),
+  password: z.string().optional(),
   loginPassword: z.string().optional(),
 });
 
@@ -49,7 +50,7 @@ type SanitizedAcoAccount = {
   botProfileName: string;
   label: string;
   retailer: string;
-  email: string;
+  email: string | null;
   emailProvider: string | null;
   onlyOneCheckout: boolean;
   loginEmail: string | null;
@@ -67,14 +68,16 @@ type SanitizedAcoAccount = {
   billingState: string | null;
   billingZip: string | null;
   status: string;
-  imapHost: string;
+  imapHost: string | null;
   imapPort: number;
   imapSecurity: string;
+  imapConfigured: boolean;
   lastSyncAt: Date | null;
   retailerLogins: {
     id: string;
     retailer: string;
     loginEmail: string;
+    enabled: boolean;
   }[];
   retailerCards?: {
     id: string;
@@ -134,7 +137,7 @@ function sanitizeAcoAccount(account: {
   botProfileName: string;
   label: string;
   retailer: string;
-  email: string;
+  email: string | null;
   emailProvider: string | null;
   onlyOneCheckout: boolean;
   loginEmail: string | null;
@@ -152,14 +155,17 @@ function sanitizeAcoAccount(account: {
   billingState: string | null;
   billingZip: string | null;
   status: string;
-  imapHost: string;
+  imapHost: string | null;
   imapPort: number;
   imapSecurity: string;
+  encryptedPassword: string | null;
+  encryptionIv: string | null;
   lastSyncAt: Date | null;
   retailerLogins: {
     id: string;
     retailer: string;
     loginEmail: string;
+    enabled: boolean;
   }[];
   retailerCards?: {
     id: string;
@@ -200,6 +206,7 @@ function sanitizeAcoAccount(account: {
     imapHost: account.imapHost,
     imapPort: account.imapPort,
     imapSecurity: account.imapSecurity,
+    imapConfigured: Boolean(account.email && account.imapHost && account.encryptedPassword && account.encryptionIv),
     lastSyncAt: account.lastSyncAt,
     retailerLogins: account.retailerLogins,
     retailerCards: account.retailerCards?.map((card) => ({
@@ -253,12 +260,15 @@ export async function GET() {
       imapHost: true,
       imapPort: true,
       imapSecurity: true,
+      encryptedPassword: true,
+      encryptionIv: true,
       lastSyncAt: true,
       retailerLogins: {
         select: {
           id: true,
           retailer: true,
           loginEmail: true,
+          enabled: true,
         },
         orderBy: { retailer: "asc" },
       },
@@ -307,7 +317,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const encryptedImapPassword = encryptImapPassword(parsed.data.password);
+  const encryptedImapPassword = parsed.data.password?.trim()
+    ? encryptImapPassword(parsed.data.password)
+    : null;
   const payloadRetailerLogins =
     parsed.data.retailerLogins && parsed.data.retailerLogins.length > 0
       ? parsed.data.retailerLogins
@@ -328,6 +340,7 @@ export async function POST(request: Request) {
       loginEmail: entry.loginEmail,
       encryptedLoginPassword: encrypted?.encryptedPassword ?? null,
       loginPasswordIv: encrypted?.encryptionIv ?? null,
+      enabled: entry.enabled ?? true,
     };
   });
 
@@ -365,7 +378,7 @@ export async function POST(request: Request) {
         accountNumber,
         botProfileName,
         label: parsed.data.label,
-        email: parsed.data.email,
+        email: parsed.data.email ?? null,
         emailProvider: parsed.data.emailProvider ?? null,
         onlyOneCheckout: parsed.data.onlyOneCheckout ?? true,
         retailer: primaryRetailerLogin.retailer,
@@ -383,11 +396,11 @@ export async function POST(request: Request) {
         billingCity: billingSameAsShipping ? null : (parsed.data.billingCity ?? null),
         billingState: billingSameAsShipping ? null : (parsed.data.billingState ?? null),
         billingZip: billingSameAsShipping ? null : (parsed.data.billingZip ?? null),
-        imapHost: parsed.data.imapHost,
-        imapPort: parsed.data.imapPort,
-        imapSecurity: parsed.data.imapSecurity,
-        encryptedPassword: encryptedImapPassword.encryptedPassword,
-        encryptionIv: encryptedImapPassword.encryptionIv,
+        imapHost: parsed.data.imapHost ?? null,
+        imapPort: parsed.data.imapPort ?? 993,
+        imapSecurity: parsed.data.imapSecurity ?? "SSL/TLS",
+        encryptedPassword: encryptedImapPassword?.encryptedPassword ?? null,
+        encryptionIv: encryptedImapPassword?.encryptionIv ?? null,
         encryptedLoginPassword: primaryRetailerLogin.encryptedLoginPassword,
         loginPasswordIv: primaryRetailerLogin.loginPasswordIv,
         retailerLogins: {
@@ -422,12 +435,15 @@ export async function POST(request: Request) {
         imapHost: true,
         imapPort: true,
         imapSecurity: true,
+        encryptedPassword: true,
+        encryptionIv: true,
         lastSyncAt: true,
         retailerLogins: {
           select: {
             id: true,
             retailer: true,
             loginEmail: true,
+            enabled: true,
           },
           orderBy: { retailer: "asc" },
         },

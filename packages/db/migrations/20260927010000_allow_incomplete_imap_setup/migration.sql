@@ -1,0 +1,5 @@
+ALTER TABLE "AcoAccount"
+  ALTER COLUMN "email" DROP NOT NULL,
+  ALTER COLUMN "imapHost" DROP NOT NULL,
+  ALTER COLUMN "encryptedPassword" DROP NOT NULL,
+  ALTER COLUMN "encryptionIv" DROP NOT NULL;

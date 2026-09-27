@@ -3,7 +3,9 @@ import { google } from "googleapis";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
+import { resolveExportEmail } from "@/lib/export-email";
 import { getGoogleSheetsConfig } from "@/lib/payment-info";
+import { findSheetCardRow } from "@/lib/sheet-card";
 
 const querySchema = z.object({
   retailer: z.string().trim().min(1).optional(),
@@ -171,31 +173,13 @@ async function getGoogleSheetRows(): Promise<string[][]> {
     keyFile: keyPath,
     scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
   });
-  const authClient = await auth.getClient();
-  const sheets = google.sheets({ version: "v4", auth: authClient as any });
+  const sheets = google.sheets({ version: "v4", auth });
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: `${sheetName}!A:AD`,
   });
 
   return (response.data.values ?? []).map((row) => row.map((value) => String(value ?? "")));
-}
-
-function findMatchingSheetRow(sheetRows: string[][], account: { email: string; loginEmail: string | null; botProfileName: string }) {
-  const emailCandidates = [
-    (account.loginEmail ?? account.email ?? "").trim().toLowerCase(),
-    (account.email ?? "").trim().toLowerCase(),
-  ].filter(Boolean);
-  const profileCandidate = (account.botProfileName ?? "").trim().toLowerCase();
-
-  return sheetRows.find((row) => {
-    const rowEmail = (row[0] ?? "").trim().toLowerCase();
-    const rowProfile = (row[1] ?? "").trim().toLowerCase();
-
-    const matchesEmail = emailCandidates.some((email) => email && rowEmail === email);
-    const matchesProfile = Boolean(profileCandidate && rowProfile === profileCandidate);
-    return matchesEmail || matchesProfile;
-  });
 }
 
 export async function GET(request: NextRequest) {
@@ -260,28 +244,33 @@ export async function GET(request: NextRequest) {
 
   const sheetRows = await getGoogleSheetRows();
 
-  const payload = accounts
+  // Drop disabled retailer logins before any matching/selection logic runs.
+  const accountsWithEnabledLogins = accounts.map((account) => ({
+    ...account,
+    retailerLogins: (account.retailerLogins.length > 0
+      ? account.retailerLogins
+      : [{ retailer: account.retailer, loginEmail: account.loginEmail, enabled: true }]
+    ).filter((login) => login.enabled !== false),
+  }));
+
+  const payload = accountsWithEnabledLogins
     .filter((account) => {
-      const logins = account.retailerLogins.length > 0
-        ? account.retailerLogins
-        : [{ retailer: account.retailer }];
-      return logins.some((l) =>
+      return account.retailerLogins.some((l) =>
         effectiveRetailerFilters.some((rf) => rf.toLowerCase() === l.retailer.toLowerCase())
       );
     })
     .map((account) => {
-      const matchingRow = findMatchingSheetRow(sheetRows, account);
       const shippingName = splitName(account.shippingName ?? account.billingName ?? account.botProfileName ?? "");
       const address = splitAddress(account.shippingAddr);
       const selectedRetailer =
         effectiveRetailerFilters.find((retailer) =>
-          [account.retailer, ...(account.retailerLogins ?? []).map((login) => login.retailer)].some(
-            (value) => value.toLowerCase() === retailer.toLowerCase(),
-          ),
+          account.retailerLogins.some((login) => login.retailer.toLowerCase() === retailer.toLowerCase()),
         ) ?? effectiveRetailerFilters[0];
-      const selectedCard =
-        account.retailerCards.find((card) => card.retailer.toLowerCase() === selectedRetailer.toLowerCase()) ??
-        account.cardOnFile;
+      const retailerCard = account.retailerCards.find(
+        (card) => card.retailer.trim().toLowerCase() === selectedRetailer.trim().toLowerCase(),
+      );
+      const selectedCard = retailerCard ?? account.cardOnFile;
+      const matchingRow = findSheetCardRow(sheetRows, account, selectedCard, retailerCard ? selectedRetailer : null);
 
       const sheetCardNumber = matchingRow?.[5] ?? "";
       const sheetCvv = matchingRow?.[8] ?? "";
@@ -296,7 +285,7 @@ export async function GET(request: NextRequest) {
         shipping: {
           firstName: shippingName.firstName,
           lastName: shippingName.lastName,
-          email: account.email,
+          email: resolveExportEmail(account, selectedRetailer),
           phone: formatPhone(account.shippingPhone ?? account.billingPhone),
           address: address.address,
           address2: address.address2,

@@ -7,6 +7,7 @@ const querySchema = z.object({
   category: z.string().trim().toLowerCase().optional(),
   retailer: z.string().trim().min(1).optional(),
   retailers: z.string().trim().min(1).optional(),
+  mode: z.enum(["default", "imap"]).optional(),
 });
 
 const HAYHA_RETAILERS = ["Target", "Bandai"];
@@ -110,6 +111,7 @@ export async function GET(request: NextRequest) {
     category: request.nextUrl.searchParams.get("category") ?? undefined,
     retailer: request.nextUrl.searchParams.get("retailer") ?? undefined,
     retailers: request.nextUrl.searchParams.get("retailers") ?? undefined,
+    mode: request.nextUrl.searchParams.get("mode") ?? undefined,
   });
 
   if (!parsed.success) {
@@ -121,6 +123,7 @@ export async function GET(request: NextRequest) {
 
   const userFilters = parseRetailerFilters(parsed.data.retailer, parsed.data.retailers);
   const category = parsed.data.category;
+  const exportMode = parsed.data.mode ?? "default";
 
   let effectiveRetailerFilters: string[] = [];
   let isCategoryFilter = false;
@@ -198,6 +201,7 @@ export async function GET(request: NextRequest) {
           loginEmail: true,
           encryptedLoginPassword: true,
           loginPasswordIv: true,
+          enabled: true,
         },
       },
     },
@@ -214,11 +218,24 @@ export async function GET(request: NextRequest) {
                 loginEmail: account.loginEmail ?? "",
                 encryptedLoginPassword: account.encryptedLoginPassword ?? "",
                 loginPasswordIv: account.loginPasswordIv ?? "",
+                enabled: true,
               },
             ];
 
       return entries
         .filter((entry) => {
+          if (!entry.enabled) {
+            return false;
+          }
+
+          if (exportMode === "imap") {
+            return (
+              isCostcoRetailer(entry.retailer) &&
+              (effectiveRetailerFilters.length === 0 ||
+                effectiveRetailerFilters.some((r) => r.toLowerCase() === entry.retailer.toLowerCase()))
+            );
+          }
+
           if (category === "hayha") {
             return (
               isHayhaRetailer(entry.retailer) &&
@@ -256,12 +273,21 @@ export async function GET(request: NextRequest) {
             return null;
           }
 
+          if (exportMode === "imap") {
+            const imapPassword = parseEncryptedValue(account.encryptedPassword, account.encryptionIv);
+            if (!imapPassword || !account.email || !account.imapHost) {
+              return null;
+            }
+
+            return `${account.imapHost};${account.email};${imapPassword}`;
+          }
+
           if (category === "stellar" && isCostcoRetailer(entry.retailer)) {
             return `${entry.loginEmail};${retailLoginPassword ?? ""}`;
           }
 
           const imapPassword = parseEncryptedValue(account.encryptedPassword, account.encryptionIv);
-          if (!imapPassword || !account.email) {
+          if (!imapPassword || !account.email || !account.imapHost) {
             return null;
           }
 
@@ -273,13 +299,15 @@ export async function GET(request: NextRequest) {
     .filter((line): line is string => line.length > 0);
 
   const filename =
-    category === "hayha"
-      ? "hayha-accounts.txt"
-      : category === "stellar"
-        ? "stellar-accounts.txt"
-        : category === "valor"
-          ? "valor-accounts.txt"
-          : "admin-account-export.txt";
+    exportMode === "imap"
+      ? "stellar-costco-imap.txt"
+      : category === "hayha"
+        ? "hayha-accounts.txt"
+        : category === "stellar"
+          ? "stellar-accounts.txt"
+          : category === "valor"
+            ? "valor-accounts.txt"
+            : "admin-account-export.txt";
 
   return new NextResponse(lines.join("\n"), {
     status: 200,

@@ -13,22 +13,25 @@
   --success: #4ade80;
   --danger: #ff5d5d;
   --warning: #ffcb3c;
+  --font-heading: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
 }
 
 body {
   color: var(--text-primary);
   background: var(--bg);
-  font-family: var(--font-body), sans-serif;
+  font-family: var(--font-body);
 }
 
 .font-heading {
-  font-family: var(--font-heading), sans-serif;
+  font-family: var(--font-heading);
 }
 
 .font-body {
-  font-family: var(--font-body), sans-serif;
+  font-family: var(--font-body);
 }
 
 .font-mono {
-  font-family: var(--font-mono), monospace;
+  font-family: var(--font-mono);
 }

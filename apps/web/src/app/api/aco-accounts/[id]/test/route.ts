@@ -54,6 +54,10 @@ export async function POST(_request: Request, context: RouteParams) {
     return NextResponse.json({ success: false, error: "Account not found" }, { status: 404 });
   }
 
+  if (!account.email || !account.imapHost || !account.encryptedPassword || !account.encryptionIv) {
+    return NextResponse.json({ success: false, error: "Configure IMAP email, host, and password before testing." }, { status: 409 });
+  }
+
   try {
     const [ciphertext, authTag] = account.encryptedPassword.split(":");
     if (!ciphertext || !authTag) {

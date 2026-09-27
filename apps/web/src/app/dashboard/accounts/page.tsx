@@ -9,8 +9,11 @@ import {
   formatDate,
   type AcoAccount,
   type CardOnFile,
+  type Profile,
   type Retailer,
 } from "@/lib/dashboard";
+import { CARD_BRAND_OPTIONS, normalizeCardBrand } from "@/lib/card-brand";
+import { ModularAccountsWorkspace } from "./modular-workspace";
 
 type AccountsResponse = {
   data: AcoAccount[];
@@ -51,6 +54,7 @@ type FormState = {
     retailer: string;
     loginEmail: string;
     loginPassword: string;
+    enabled: boolean;
   }>;
   shippingName: string;
   shippingPhone: string;
@@ -102,7 +106,7 @@ const defaultFormState: FormState = {
   email: "",
   emailProvider: "",
   onlyOneCheckout: true,
-  retailerLogins: [{ retailer: "", loginEmail: "", loginPassword: "" }],
+  retailerLogins: [{ retailer: "", loginEmail: "", loginPassword: "", enabled: true }],
   shippingName: "",
   shippingPhone: "",
   shippingAddr: "",
@@ -170,6 +174,7 @@ function splitAddressLines(value: string | null | undefined) {
 export default function AccountsPage() {
   const { data, error, mutate } = useSWR<AccountsResponse>("/api/aco-accounts", fetchJson);
   const { data: retailersData } = useSWR<{ data: Retailer[] }>("/api/retailers", fetchJson);
+  const { data: profileData, mutate: mutateProfile } = useSWR<{ data: Profile }>("/api/profile", fetchJson);
   const [statusBanner, setStatusBanner] = useState<StatusBanner | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -178,6 +183,8 @@ export default function AccountsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formState, setFormState] = useState<FormState>(defaultFormState);
   const [showSuccessPulse, setShowSuccessPulse] = useState(false);
+  const [togglingLoginId, setTogglingLoginId] = useState<string | null>(null);
+  const [modeSaving, setModeSaving] = useState(false);
 
   const retailerOptions = useMemo(() => {
     if (retailersData?.data && retailersData.data.length > 0) {
@@ -191,6 +198,29 @@ export default function AccountsPage() {
   const maxAccountsPerUser = data?.meta?.maxAccountsPerUser ?? 5;
   const currentAccounts = data?.meta?.currentAccounts ?? data?.data?.length ?? 0;
   const isCreateLimitReached = editingId === null && currentAccounts >= maxAccountsPerUser;
+  const accountManagementMode = profileData?.data.accountManagementMode ?? "classic";
+
+  async function changeAccountManagementMode(mode: "classic" | "modular") {
+    if (mode === accountManagementMode || modeSaving) return;
+    setModeSaving(true);
+    try {
+      const response = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountManagementMode: mode }),
+      });
+      if (!response.ok) throw new Error("Could not save your account management preference.");
+      const result = (await response.json()) as { data: Profile };
+      await mutateProfile(result, false);
+    } catch (error) {
+      setStatusBanner({
+        message: error instanceof Error ? error.message : "Could not save your account management preference.",
+        tone: "error",
+      });
+    } finally {
+      setModeSaving(false);
+    }
+  }
 
   useEffect(() => {
     if (!statusBanner?.pulse) {
@@ -255,7 +285,7 @@ export default function AccountsPage() {
     const retailerCards = (account.retailerCards ?? []).map((entry) => ({
       retailer: entry.retailer,
       cardholderName: entry.cardholderName ?? "",
-      cardBrand: entry.cardBrand ?? "",
+      cardBrand: normalizeCardBrand(entry.cardBrand) ?? "",
       cardNumber: "",
       expMonth: entry.expMonth ? String(entry.expMonth).padStart(2, "0") : "",
       expYear: entry.expYear ? String(entry.expYear) : "",
@@ -267,7 +297,7 @@ export default function AccountsPage() {
         ? [{
             retailer: "",
             cardholderName: card.cardholderName ?? "",
-            cardBrand: card.cardBrand ?? "",
+            cardBrand: normalizeCardBrand(card.cardBrand) ?? "",
             cardNumber: "",
             expMonth: card.expMonth ? String(card.expMonth).padStart(2, "0") : "",
             expYear: card.expYear ? String(card.expYear) : "",
@@ -279,7 +309,7 @@ export default function AccountsPage() {
 
     setFormState({
       label: account.label,
-      email: account.email,
+      email: account.email ?? "",
       emailProvider: normalizedProvider,
       onlyOneCheckout: account.onlyOneCheckout,
       retailerLogins:
@@ -288,12 +318,14 @@ export default function AccountsPage() {
               retailer: entry.retailer,
               loginEmail: entry.loginEmail,
               loginPassword: "",
+              enabled: entry.enabled,
             }))
           : [
               {
                 retailer: account.retailer,
                 loginEmail: account.loginEmail ?? "",
                 loginPassword: "",
+                enabled: true,
               },
             ],
       shippingName: account.shippingName ?? "",
@@ -316,7 +348,7 @@ export default function AccountsPage() {
       imapHost:
         normalizedProvider && normalizedProvider !== "Other"
           ? EMAIL_PROVIDER_HOSTS[normalizedProvider]
-          : account.imapHost,
+          : account.imapHost ?? "",
       imapPort: String(account.imapPort),
       imapSecurity: account.imapSecurity,
       password: "",
@@ -325,7 +357,7 @@ export default function AccountsPage() {
         {
           retailer: "",
           cardholderName: card?.cardholderName ?? "",
-          cardBrand: card?.cardBrand ?? "",
+          cardBrand: normalizeCardBrand(card?.cardBrand) ?? "",
           cardNumber: "",
           expMonth: card?.expMonth ? String(card.expMonth).padStart(2, "0") : "",
           expYear: card?.expYear ? String(card.expYear) : "",
@@ -353,10 +385,40 @@ export default function AccountsPage() {
     }));
   }
 
+  function setRetailerLoginEnabled(index: number, enabled: boolean) {
+    setFormState((current) => ({
+      ...current,
+      retailerLogins: current.retailerLogins.map((entry, entryIndex) =>
+        entryIndex === index ? { ...entry, enabled } : entry,
+      ),
+    }));
+  }
+
+  async function toggleRetailerLoginEnabled(accountId: string, loginId: string, enabled: boolean) {
+    setTogglingLoginId(loginId);
+    try {
+      const response = await fetch(`/api/aco-accounts/${accountId}/retailer-logins/${loginId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update retailer status");
+      }
+
+      await mutate();
+    } catch {
+      setStatusBanner({ message: "Failed to update retailer status.", tone: "error" });
+    } finally {
+      setTogglingLoginId(null);
+    }
+  }
+
   function addRetailerLoginRow() {
     setFormState((current) => ({
       ...current,
-      retailerLogins: [...current.retailerLogins, { retailer: "", loginEmail: "", loginPassword: "" }],
+      retailerLogins: [...current.retailerLogins, { retailer: "", loginEmail: "", loginPassword: "", enabled: true }],
     }));
   }
 
@@ -431,6 +493,7 @@ export default function AccountsPage() {
         retailer: entry.retailer.trim(),
         loginEmail: entry.loginEmail.trim(),
         loginPassword: entry.loginPassword,
+        enabled: entry.enabled,
       }))
       .filter((entry) => entry.retailer.length > 0 || entry.loginEmail.length > 0);
 
@@ -734,6 +797,24 @@ export default function AccountsPage() {
     }
   }
 
+  if (accountManagementMode === "modular") {
+    return (
+      <ModularAccountsWorkspace
+        accounts={data?.data ?? []}
+        cardByAccount={cardByAccount}
+        onRefresh={async () => {
+          setCardByAccount({});
+          await mutate();
+        }}
+        modeSaving={modeSaving}
+        onModeChange={(mode) => void changeAccountManagementMode(mode)}
+        loading={!data && !error}
+        loadError={Boolean(error)}
+        retailers={retailerOptions}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -746,18 +827,24 @@ export default function AccountsPage() {
             {currentAccounts}/{maxAccountsPerUser} accounts used.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={startCreate}
-          disabled={isCreateLimitReached}
-          className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isCreateLimitReached
-            ? `Limit reached (${maxAccountsPerUser})`
-            : showForm && editingId === null
-              ? "Close"
-              : "Add account"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-md border border-[#2C2D3A] p-1" aria-label="Account management mode">
+            <button type="button" disabled={modeSaving} aria-pressed="true" className="rounded bg-[#2F5BFF] px-3 py-1.5 text-xs font-medium text-white">Classic</button>
+            <button type="button" disabled={modeSaving} onClick={() => void changeAccountManagementMode("modular")} className="rounded px-3 py-1.5 text-xs text-[#9C9AAE] hover:text-[#F2F1F6]">Modular</button>
+          </div>
+          <button
+            type="button"
+            onClick={startCreate}
+            disabled={isCreateLimitReached}
+            className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isCreateLimitReached
+              ? `Limit reached (${maxAccountsPerUser})`
+              : showForm && editingId === null
+                ? "Close"
+                : "Add account"}
+          </button>
+        </div>
       </header>
 
       {showForm ? (
@@ -958,6 +1045,15 @@ export default function AccountsPage() {
                         </button>
                       ) : null}
                     </div>
+                    <label className="flex items-center gap-2 text-xs text-[#9C9AAE] md:col-span-3">
+                      <input
+                        type="checkbox"
+                        checked={entry.enabled}
+                        onChange={(event) => setRetailerLoginEnabled(index, event.target.checked)}
+                        className="h-4 w-4 rounded border-[#2C2D3A] bg-[#18181F]"
+                      />
+                      Enabled (disabled retailers are skipped from admin exports)
+                    </label>
                   </div>
                 );
               })}
@@ -1172,12 +1268,18 @@ export default function AccountsPage() {
                   autoComplete="cc-name"
                   className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
                 />
-                <input
+                <select
                   value={card.cardBrand}
                   onChange={(event) => updatePaymentCardField(index, "cardBrand", event.target.value)}
-                  placeholder="Card brand (e.g. Visa, Mastercard, Amex)"
                   className="rounded-md border border-[#2C2D3A] bg-[#18181F] px-3 py-2 text-sm"
-                />
+                >
+                  <option value="">Select card brand</option>
+                  {CARD_BRAND_OPTIONS.map((brand) => (
+                    <option key={brand} value={brand}>
+                      {brand}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <input
@@ -1265,7 +1367,6 @@ export default function AccountsPage() {
       <section className="space-y-3">
         {data?.data.map((account) => {
           const card = cardByAccount[account.id];
-          const retailerNames = account.retailerLogins.map((entry) => entry.retailer).join(", ");
           const retailerLoginEmails = account.retailerLogins
             .map((entry) => entry.loginEmail)
             .join(", ");
@@ -1308,7 +1409,29 @@ export default function AccountsPage() {
                 <p>Email provider: {account.emailProvider ?? "not set yet"}</p>
                 <p>Checkout mode: {account.onlyOneCheckout ? "single checkout" : "multiple allowed"}</p>
                 <p>IMAP login: {account.email}</p>
-                <p>Retailers: {retailerNames || account.retailer}</p>
+                {account.retailerLogins.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>Retailers:</span>
+                    {account.retailerLogins.map((login) => (
+                      <button
+                        key={login.id}
+                        type="button"
+                        disabled={togglingLoginId === login.id}
+                        onClick={() => toggleRetailerLoginEnabled(account.id, login.id, !login.enabled)}
+                        title={login.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+                        className={`rounded-full border px-2 py-1 text-xs transition disabled:opacity-50 ${
+                          login.enabled
+                            ? "border-[#4ADE80]/40 text-[#4ADE80]"
+                            : "border-[#605E72]/40 text-[#605E72] line-through"
+                        }`}
+                      >
+                        {login.retailer}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p>Retailers: {account.retailer}</p>
+                )}
                 <p>Retail logins: {retailerLoginEmails || account.loginEmail || "not set yet"}</p>
                 <p>
                   Shipping: {account.shippingName ?? "N/A"} • {account.shippingAddr ?? "N/A"}

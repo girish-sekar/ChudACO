@@ -196,17 +196,19 @@ export default function AdminDashboard() {
       return;
     }
 
-    try {
+    const downloadFile = async (filename: string, mode?: "default" | "imap") => {
       const params = new URLSearchParams();
       params.set("category", category);
+      if (mode) {
+        params.set("mode", mode);
+      }
       if (selectedRetailers.length > 0) {
         params.set("retailers", selectedRetailers.join(","));
       }
 
-      const response = await fetch(
-        `/api/admin/export/accounts-txt?${params.toString()}`,
-        { credentials: "include" },
-      );
+      const response = await fetch(`/api/admin/export/accounts-txt?${params.toString()}`, {
+        credentials: "include",
+      });
 
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as
@@ -215,24 +217,40 @@ export default function AdminDashboard() {
         const message = payload?.detail
           ? `${payload?.error ?? "Export failed"}: ${payload.detail}`
           : payload?.error ?? "Export failed";
-        setExportError(message);
-        return;
+        throw new Error(message);
       }
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download =
-        category === "hayha"
-          ? "hayha-accounts.txt"
-          : category === "stellar"
-            ? "stellar-accounts.txt"
-            : "valor-accounts.txt";
+      anchor.download = filename;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
+    };
+
+    try {
+      const needsSeparateCostcoImapExport =
+        category === "stellar" &&
+        selectedRetailers.some((retailer) => retailer.trim().toLowerCase() === "costco");
+
+      if (needsSeparateCostcoImapExport) {
+        await downloadFile("stellar-accounts.txt", "default");
+        await downloadFile("stellar-costco-imap.txt", "imap");
+        return;
+      }
+
+      await downloadFile(
+        category === "hayha"
+          ? "hayha-accounts.txt"
+          : category === "stellar"
+            ? "stellar-accounts.txt"
+            : "valor-accounts.txt",
+      );
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Export failed");
     } finally {
       setExportingCategory(null);
     }
