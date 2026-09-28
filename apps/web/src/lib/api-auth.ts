@@ -1,5 +1,6 @@
 import { prisma } from "@chudaco/db";
 import { auth } from "@/auth";
+import { CURRENT_TERMS_VERSION } from "@/lib/terms";
 
 export type AuthenticatedContext = {
   discordId: string;
@@ -16,10 +17,10 @@ export async function getAuthenticatedContext(): Promise<AuthenticatedContext | 
 
   const user = await prisma.user.findUnique({
     where: { discordId },
-    select: { id: true },
+    select: { id: true, termsVersion: true },
   });
 
-  if (!user) {
+  if (!user || user.termsVersion !== CURRENT_TERMS_VERSION) {
     return null;
   }
 

@@ -17,6 +17,8 @@ model User {
   notifyOnFailure     Boolean        @default(true)
   notifyWeeklySummary Boolean        @default(false)
   accountManagementMode String       @default("classic")
+  termsVersion        String?
+  termsAcceptedAt     DateTime?
   createdAt           DateTime       @default(now())
   checkouts           Checkout[]
   billingEntries      BillingEntry[]

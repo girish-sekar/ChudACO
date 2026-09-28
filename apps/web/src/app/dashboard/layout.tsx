@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
+import { redirect } from "next/navigation";
+import { prisma } from "@chudaco/db";
 import { auth, signOut } from "@/auth";
 import { DashboardNav } from "@/components/dashboard/nav";
+import { CURRENT_TERMS_VERSION } from "@/lib/terms";
 
 function isAdminDiscordId(discordId: string | undefined): boolean {
   if (!discordId) return false;
@@ -13,6 +16,19 @@ function isAdminDiscordId(discordId: string | undefined): boolean {
 
 export default async function DashboardLayout({ children }: { children: ReactNode }) {
   const session = await auth();
+  const discordId = session?.user?.discordId;
+  if (!discordId) {
+    redirect("/login");
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { discordId },
+    select: { termsVersion: true },
+  });
+  if (user?.termsVersion !== CURRENT_TERMS_VERSION) {
+    redirect("/terms");
+  }
+
   const isAdmin = isAdminDiscordId(session?.user?.discordId);
   return (
     <main className="min-h-screen bg-[#101014] text-[#F2F1F6]">

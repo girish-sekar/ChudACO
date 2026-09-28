@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { TermsContent } from "@/components/terms-content";
 
 const sections = [
   { id: "how-it-works", label: "How it works" },
@@ -92,47 +93,7 @@ export default function SetupGuidePage() {
             </div>
           </section>
 
-          <section id="terms" className="border-b border-[#2C2D3A] pb-10">
-            <h2 className="font-heading text-2xl font-semibold">Terms & Conditions</h2>
-            <p className="mt-2 max-w-[68ch] text-[#9C9AAE]">
-              Please read the following terms carefully before completing any Auto Checkout forms. By submitting a form, you acknowledge that you have <strong>read, understood, and agreed</strong> to these terms.
-            </p>
-            <div className="mt-4 flex max-w-[68ch] gap-3 rounded-lg border border-[#5C4A1A] bg-[#332B12] px-4 py-3 text-sm text-[#FFCB3C]">
-              <span className="font-mono">!</span>
-              <span>ChudACO reserves the right to update or modify these Terms & Conditions at any time.</span>
-            </div>
-
-            <h3 className="mt-6 font-heading text-lg font-semibold">User Agreement</h3>
-            <ul className="mt-3 max-w-[68ch] list-disc space-y-2 pl-5 text-sm text-[#D7D6E4]">
-              <li>ChudACO reserves the right to modify or update these terms at any time. Continued use of our services constitutes acceptance of the revised terms.</li>
-              <li>ChudACO is <strong>not responsible</strong> for any unauthorized charges or failed checkouts. All information provided is deleted after the release is complete or once the product is secured.</li>
-              <li>Submitting <strong>false, incomplete, or repetitive information</strong> will result in refusal of service and may lead to a permanent ban.</li>
-              <li>By using our ACO services, you authorize ChudACO to use the information you provide in order to attempt checkout of the requested item(s). The only service fee will be the <strong>PAS (Pay After Success) fee</strong>, as outlined below.</li>
-            </ul>
-
-            <h3 className="mt-6 font-heading text-lg font-semibold">Pay After Success (PAS)</h3>
-            <ul className="mt-3 max-w-[68ch] list-disc space-y-2 pl-5 text-sm text-[#D7D6E4]">
-              <li>You will <strong>only be charged</strong> the PAS Fee if we successfully purchase the requested item on your behalf.</li>
-              <li>If your checkout is successful, you will be contacted within <strong>24 hours</strong> to arrange payment. Payment must be completed within <strong>48 hours</strong> of confirmation.</li>
-              <li>Failure to pay within 48 hours will result in <strong>cancellation of your order and a permanent ban</strong> from all future ACO services.</li>
-              <li>If a retailer cancels your order, you must provide <strong>proof of cancellation</strong> (e.g., cancellation email) to receive a refund of your PAS Fee.</li>
-              <li>If <strong>you personally contact the retailer</strong> to cancel your order, no refund will be issued — you are still obligated to pay the PAS Fee.</li>
-              <li>Once an order has <strong>shipped</strong>, the PAS Fee is <strong>non-refundable</strong>. Any further issues must be resolved directly with the retailer.</li>
-            </ul>
-
-            <h3 className="mt-6 font-heading text-lg font-semibold">Liability</h3>
-            <ul className="mt-3 max-w-[68ch] list-disc space-y-2 pl-5 text-sm text-[#D7D6E4]">
-              <li>By submitting an ACO form, you authorize ChudACO to use your information <strong>solely</strong> for the purpose of attempting checkout.</li>
-              <li>You understand that there is always risk when using automated checkout services. We are <strong>not held liable</strong> for any incorrect items purchased.</li>
-              <li>Members are <strong>fully responsible</strong> for providing accurate and unique information. ChudACO will not be held accountable for errors caused by inaccurate, duplicate, or fraudulent information.</li>
-              <li>ChudACO reserves the right to <strong>decline service, cancel forms, or permanently ban</strong> users if fraudulent activity, repeated misinformation, or chargebacks are detected.</li>
-              <li>By continuing to use ChudACO services, you agree that you <strong>assume all risk and responsibility</strong> for outcomes associated with the use of automated checkout services.</li>
-            </ul>
-
-            <h3 className="mt-6 font-heading text-lg font-semibold">Agreement</h3>
-            <p className="mt-2 max-w-[68ch]">By submitting an ACO, you confirm that you have read and agreed to all of the above terms.</p>
-            <p className="mt-2 max-w-[68ch] text-[#9C9AAE]">To grab your ACO Role, head to the self-role channel on Discord and tap the <strong>Cop Access</strong> role.</p>
-          </section>
+          <TermsContent showRoleNote />
 
           <section id="getting-access" className="border-b border-[#2C2D3A] pb-10">
             <h2 className="font-heading text-2xl font-semibold">1. Get access</h2>
