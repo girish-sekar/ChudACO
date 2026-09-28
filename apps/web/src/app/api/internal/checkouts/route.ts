@@ -11,6 +11,7 @@ const workerCheckoutSchema = z.object({
   price: z.string().trim().min(1),
   size: z.string().trim().optional(),
   color: z.string().trim().optional(),
+  orderNumber: z.string().trim().max(128).optional(),
   image: z.string().trim().optional(),
 });
 
@@ -210,6 +211,7 @@ export async function POST(request: Request) {
         qtyLabel: `Qty ${data.quantity}`,
         price: normalizedPrice,
         status: "success",
+        orderNumber: data.orderNumber?.trim() || null,
         ticketCode,
       },
     });

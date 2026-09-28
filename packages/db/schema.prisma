@@ -35,6 +35,7 @@ model Checkout {
   price          Decimal        @db.Decimal(10, 2)
   status         CheckoutStatus @default(pending)
   trackingNumber String?
+  orderNumber    String?
   ticketCode     String         @unique
   occurredAt     DateTime       @default(now())
   billingEntries BillingEntry[]

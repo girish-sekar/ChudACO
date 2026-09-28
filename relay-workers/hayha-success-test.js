@@ -79,6 +79,7 @@ function buildTestCheckoutPayload() {
     price: "$59.99",
     size: "N/A",
     color: "N/A",
+    orderNumber: "6691954065613",
     image: "https://target.scene7.com/is/image/Target/GUEST_40ed4d44-2adc-4cfe-a27b-0ce8b6e73cba?wid=1200&hei=1200&qlt=80"
   };
 }
@@ -127,8 +128,21 @@ function sanitize(b) {
     price: pick(b, m, ["price"], ["price"], priceOf(item)),
     size: pick(b, m, ["size"], ["size"], "N/A"),
     color: pick(b, m, ["color"], ["color"], "N/A"),
+    // Forwarded to ChudACO only; deliberately kept out of the Discord embed.
+    orderNumber: orderNumberOf(b, m),
     image: imageOf(b)
   };
+}
+function orderNumberOf(b, m) {
+  const raw = pick(
+    b,
+    m,
+    ["orderNumber", "order_number", "orderId", "order_id", "order"],
+    ["order number", "order #", "order id", "order"],
+    ""
+  );
+  const cleaned = String(raw).replace(/^\|\|+|\|\|+$/g, "").replace(/[`*_~]/g, "").trim();
+  return /^(n\/a|none|unknown|-)?$/i.test(cleaned) ? "" : cleaned;
 }
 function successPayload(name, s, mentionUserId) {
   const embed = {
