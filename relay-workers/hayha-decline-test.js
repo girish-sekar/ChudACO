@@ -153,7 +153,7 @@ function declinePayload(name, s, reason, kind, mentionUserId) {
     color: kind === "declined" ? 15105570 : 15548997,
     fields: [
       { name: "Profile Name", value: s.profile, inline: true },
-      { name: "Mode", value: s.mode, inline: true },
+      // { name: "Mode", value: s.mode, inline: true },
       { name: "Quantity", value: s.quantity, inline: true },
       { name: "Price", value: s.price, inline: true },
       { name: "Item", value: s.item, inline: false },
@@ -180,7 +180,7 @@ function testPayload(name, isDecline, mentionUserId) {
       color: isDecline ? 15105570 : 5763719,
       fields: [
         { name: "Profile Name", value: "girishsekar8392 - ACO #1", inline: true },
-        { name: "Mode", value: "test-mode", inline: true },
+        // { name: "Mode", value: "test-mode", inline: true },
         { name: "Quantity", value: "1", inline: true },
         { name: "Price", value: "$19.99", inline: true },
         { name: "Item", value: "Test Item Name", inline: false },
