@@ -30,7 +30,12 @@ function parsePriceToNumber(raw: string): number | null {
 }
 
 function normalizeProfileName(profile: string): string {
-  return profile.trim().replace(/^\|\|+|\|\|+$/g, "").trim();
+  return stripSpoilerMarkup(profile);
+}
+
+// Bots wrap values in Discord spoiler bars (||value||); strip them off.
+function stripSpoilerMarkup(value: string): string {
+  return value.trim().replace(/^\|\|+|\|\|+$/g, "").trim();
 }
 
 function matchesPokemonCenterEtbCheckout(site: string, item: string): boolean {
@@ -128,6 +133,7 @@ export async function POST(request: Request) {
 
   const normalizedPrice = parsedPrice.toFixed(2);
   const normalizedProfile = normalizeProfileName(data.profile);
+  const normalizedOrderNumber = data.orderNumber ? stripSpoilerMarkup(data.orderNumber) : "";
 
   const account = await prisma.acoAccount.findUnique({
     where: { botProfileName: normalizedProfile },
@@ -211,7 +217,7 @@ export async function POST(request: Request) {
         qtyLabel: `Qty ${data.quantity}`,
         price: normalizedPrice,
         status: "success",
-        orderNumber: data.orderNumber?.trim() || null,
+        orderNumber: normalizedOrderNumber || null,
         ticketCode,
       },
     });

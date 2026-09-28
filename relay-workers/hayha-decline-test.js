@@ -58,9 +58,14 @@ function hayhaDeclineKind(b) {
   if (/checkout failed|payment failed|\bfailed\b|failure|cancelled|canceled/.test(t)) return "failed";
   return "other";
 }
+// Bots wrap values in Discord spoiler bars (||value||); strip them off.
+function stripSpoilerMarkup(value) {
+  if (typeof value !== "string") return value;
+  return value.trim().replace(/^\|\|+|\|\|+$/g, "").trim();
+}
+
 function normalizeProfileName(profile) {
-  if (typeof profile !== "string") return profile;
-  return profile.trim().replace(/^\|\|+|\|\|+$/g, "").trim();
+  return stripSpoilerMarkup(profile);
 }
 
 function buildTestCheckoutPayload() {
@@ -134,7 +139,8 @@ function orderNumberOf(b, m) {
     ["order number", "order #", "order id", "order"],
     ""
   );
-  const cleaned = String(raw).replace(/^\|\|+|\|\|+$/g, "").replace(/[`*_~]/g, "").trim();
+  // Markdown is stripped before the spoiler bars so "**||123||**" resolves too.
+  const cleaned = stripSpoilerMarkup(String(raw).replace(/[`*_~]/g, ""));
   return /^(n\/a|none|unknown|-)?$/i.test(cleaned) ? "" : cleaned;
 }
 function extractReason(b, kind) {

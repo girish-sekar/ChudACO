@@ -64,9 +64,14 @@ function blob(b) {
 function isTest(b) { return /test webhook|testing|webhook test|ping|bing bong|configured and working/.test(blob(b)); }
 function isHayhaSuccess(b) { return /successful checkout|way to go|checked out|checkout success|\bsuccess\b/.test(blob(b)); }
 
+// Bots wrap values in Discord spoiler bars (||value||); strip them off.
+function stripSpoilerMarkup(value) {
+  if (typeof value !== "string") return value;
+  return value.trim().replace(/^\|\|+|\|\|+$/g, "").trim();
+}
+
 function normalizeProfileName(profile) {
-  if (typeof profile !== "string") return profile;
-  return profile.trim().replace(/^\|\|+|\|\|+$/g, "").trim();
+  return stripSpoilerMarkup(profile);
 }
 
 function buildTestCheckoutPayload() {
@@ -141,7 +146,8 @@ function orderNumberOf(b, m) {
     ["order number", "order #", "order id", "order"],
     ""
   );
-  const cleaned = String(raw).replace(/^\|\|+|\|\|+$/g, "").replace(/[`*_~]/g, "").trim();
+  // Markdown is stripped before the spoiler bars so "**||123||**" resolves too.
+  const cleaned = stripSpoilerMarkup(String(raw).replace(/[`*_~]/g, ""));
   return /^(n\/a|none|unknown|-)?$/i.test(cleaned) ? "" : cleaned;
 }
 function successPayload(name, s, mentionUserId) {
