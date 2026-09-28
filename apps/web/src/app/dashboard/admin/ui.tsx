@@ -852,6 +852,7 @@ export default function AdminDashboard() {
                 <p className="text-xs text-[#605E72]">
                   Account: {row.acoAccount?.label ?? "n/a"} • {formatDate(row.occurredAt)}
                 </p>
+                <p className="text-xs text-[#605E72]">Order #: {row.orderNumber ?? "n/a"}</p>
               </div>
               <span
                 className={`rounded-full border px-2 py-1 text-xs ${

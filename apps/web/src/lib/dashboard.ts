@@ -9,6 +9,7 @@ export type Checkout = {
   price: string;
   status: CheckoutStatus;
   trackingNumber: string | null;
+  orderNumber: string | null;
   ticketCode: string;
   occurredAt: string;
 };
@@ -145,6 +146,7 @@ export type AdminCheckoutRow = {
   price: string;
   status: CheckoutStatus;
   trackingNumber: string | null;
+  orderNumber: string | null;
   ticketCode: string;
   occurredAt: string;
   user: {

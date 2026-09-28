@@ -89,6 +89,9 @@ export default function CheckoutsPage() {
               <p className="text-sm text-[#9C9AAE]">
                 Tracking: {item.trackingNumber ? item.trackingNumber : "no tracking yet"}
               </p>
+              <p className="mt-1 text-sm text-[#9C9AAE]">
+                Order #: {item.orderNumber ? item.orderNumber : "not captured"}
+              </p>
               <p className="mt-2 font-mono text-xs text-[#605E72]">{item.ticketCode}</p>
             </div>
           </article>
