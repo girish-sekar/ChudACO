@@ -95,6 +95,9 @@ export type AcoAccount = {
   imapSecurity: string;
   imapConfigured: boolean;
   lastSyncAt: string | null;
+  profileId?: string | null;
+  imapConfigId?: string | null;
+  cardId?: string | null;
   retailerLogins: {
     id: string;
     retailer: string;
@@ -104,6 +107,7 @@ export type AcoAccount = {
   retailerCards?: {
     id: string;
     retailer: string;
+    cardId?: string | null;
     cardBrand: string | null;
     last4: string | null;
     expMonth: number | null;
@@ -111,6 +115,50 @@ export type AcoAccount = {
     cardholderName: string | null;
     updatedAt: string;
   }[];
+};
+
+export type LinkedAccountRef = { id: string; accountNumber: number; label: string };
+
+export type AcoProfileEntry = {
+  id: string;
+  name: string;
+  shippingName: string | null;
+  shippingPhone: string | null;
+  shippingAddr: string | null;
+  shippingCity: string | null;
+  shippingState: string | null;
+  shippingZip: string | null;
+  billingSameAsShipping: boolean;
+  billingName: string | null;
+  billingPhone: string | null;
+  billingAddr: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingZip: string | null;
+  accounts: LinkedAccountRef[];
+};
+
+export type AcoImapConfigEntry = {
+  id: string;
+  email: string;
+  emailProvider: string | null;
+  imapHost: string;
+  imapPort: number;
+  imapSecurity: string;
+  passwordSet: boolean;
+  accounts: (LinkedAccountRef & { lastSyncAt: string | null })[];
+};
+
+export type AcoCardEntry = {
+  id: string;
+  label: string;
+  cardholderName: string;
+  cardBrand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  accounts: LinkedAccountRef[];
+  retailerCards: { retailer: string; acoAccount: LinkedAccountRef }[];
 };
 
 export type CardOnFile = {

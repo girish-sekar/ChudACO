@@ -23,6 +23,9 @@ model User {
   checkouts           Checkout[]
   billingEntries      BillingEntry[]
   acoAccounts         AcoAccount[]
+  acoProfiles         AcoProfile[]
+  acoImapConfigs      AcoImapConfig[]
+  acoCards            AcoCard[]
 }
 
 model Checkout {
@@ -119,12 +122,81 @@ model AcoAccount {
   encryptedLoginPassword String?
   loginPasswordIv        String?
   lastSyncAt        DateTime?
+  // Linked library entries; their values are copied onto this account when linked/edited.
+  profileId         String?
+  profile           AcoProfile?    @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  imapConfigId      String?
+  imapConfig        AcoImapConfig? @relation(fields: [imapConfigId], references: [id], onDelete: SetNull)
+  cardId            String?
+  card              AcoCard?       @relation(fields: [cardId], references: [id], onDelete: SetNull)
   checkouts         Checkout[]
   cardOnFile        CardOnFile?
   retailerLogins    AcoRetailerLogin[]
   retailerCards     AcoRetailerCard[]
 
   @@unique([userId, accountNumber])
+}
+
+model AcoProfile {
+  id                    String       @id @default(cuid())
+  userId                String
+  user                  User         @relation(fields: [userId], references: [id])
+  name                  String
+  shippingName          String?
+  shippingPhone         String?
+  shippingAddr          String?
+  shippingCity          String?
+  shippingState         String?
+  shippingZip           String?
+  billingSameAsShipping Boolean      @default(true)
+  billingName           String?
+  billingPhone          String?
+  billingAddr           String?
+  billingCity           String?
+  billingState          String?
+  billingZip            String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  accounts              AcoAccount[]
+
+  @@unique([userId, name])
+}
+
+model AcoImapConfig {
+  id                String       @id @default(cuid())
+  userId            String
+  user              User         @relation(fields: [userId], references: [id])
+  email             String
+  emailProvider     String?
+  imapHost          String
+  imapPort          Int          @default(993)
+  imapSecurity      String       @default("SSL/TLS")
+  encryptedPassword String?
+  encryptionIv      String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  accounts          AcoAccount[]
+
+  @@unique([userId, email])
+}
+
+// Masked details only; full card number/CVV live in the Google Sheets card vault tab.
+model AcoCard {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  label          String
+  cardholderName String
+  cardBrand      String
+  last4          String
+  expMonth       Int
+  expYear        Int
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  accounts       AcoAccount[]
+  retailerCards  AcoRetailerCard[]
+
+  @@unique([userId, label])
 }
 
 model AcoRetailerLogin {
@@ -165,6 +237,8 @@ model AcoRetailerCard {
   acoAccountId   String
   acoAccount     AcoAccount @relation(fields: [acoAccountId], references: [id], onDelete: Cascade)
   retailer       String
+  cardId         String?
+  card           AcoCard?   @relation(fields: [cardId], references: [id], onDelete: SetNull)
   cardBrand      String?
   last4          String?
   expMonth       Int?

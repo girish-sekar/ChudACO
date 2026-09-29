@@ -13,6 +13,7 @@ import {
   type Retailer,
 } from "@/lib/dashboard";
 import { CARD_BRAND_OPTIONS, normalizeCardBrand } from "@/lib/card-brand";
+import { EMAIL_PROVIDER_HOSTS } from "@/lib/email-providers";
 import { ModularAccountsWorkspace } from "./modular-workspace";
 
 type AccountsResponse = {
@@ -86,16 +87,6 @@ function toSafeNumber(value: string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
-
-const EMAIL_PROVIDER_HOSTS = {
-  Gmail: "imap.gmail.com",
-  Outlook: "outlook.office365.com",
-  Yahoo: "imap.mail.yahoo.com",
-  iCloud: "imap.mail.me.com",
-  AOL: "imap.aol.com",
-  Proton: "imap.protonmail.ch",
-  Other: "",
-} as const;
 
 const EMAIL_PROVIDER_OPTIONS = Object.keys(EMAIL_PROVIDER_HOSTS) as Array<
   keyof typeof EMAIL_PROVIDER_HOSTS

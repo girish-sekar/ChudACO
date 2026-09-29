@@ -196,3 +196,88 @@ export function buildGoogleSheetRow(values: GoogleSheetRowInput): string[] {
     values.sizeOptional,
   ];
 }
+
+export type SheetAccountFields = {
+  id: string;
+  botProfileName: string;
+  email: string | null;
+  loginEmail: string | null;
+  onlyOneCheckout: boolean;
+  shippingName: string | null;
+  shippingPhone: string | null;
+  shippingAddr: string | null;
+  shippingCity: string | null;
+  shippingState: string | null;
+  shippingZip: string | null;
+  billingSameAsShipping: boolean;
+  billingName: string | null;
+  billingPhone: string | null;
+  billingAddr: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingZip: string | null;
+};
+
+export const sheetAccountSelect = {
+  id: true,
+  botProfileName: true,
+  email: true,
+  loginEmail: true,
+  onlyOneCheckout: true,
+  shippingName: true,
+  shippingPhone: true,
+  shippingAddr: true,
+  shippingCity: true,
+  shippingState: true,
+  shippingZip: true,
+  billingSameAsShipping: true,
+  billingName: true,
+  billingPhone: true,
+  billingAddr: true,
+  billingCity: true,
+  billingState: true,
+  billingZip: true,
+} as const;
+
+export function buildAccountCardSheetRow(
+  account: SheetAccountFields,
+  card: { cardholderName: string; cardBrand: string; cardNumber: string; expMonth: number; expYear: number; cvv: string },
+  retailer: string | null,
+): string[] {
+  const shippingName = account.shippingName ?? "";
+  const shippingPhone = account.shippingPhone ?? "";
+  const shippingAddress = account.shippingAddr ?? "";
+  const shippingCity = account.shippingCity ?? "";
+  const shippingState = account.shippingState ?? "";
+  const shippingPostCode = account.shippingZip ?? "";
+  const same = account.billingSameAsShipping;
+
+  return buildGoogleSheetRow({
+    emailAddress: account.loginEmail ?? account.email ?? "",
+    profileName: account.botProfileName,
+    onlyOneCheckout: account.onlyOneCheckout,
+    sameBillingShipping: same,
+    nameOnCard: card.cardholderName,
+    cardType: card.cardBrand,
+    cardNumber: card.cardNumber,
+    expirationMonth: card.expMonth,
+    expirationYear: card.expYear,
+    cvv: card.cvv,
+    shippingName,
+    shippingPhone,
+    shippingAddress,
+    shippingPostCode,
+    shippingCity,
+    shippingState,
+    shippingCountry: "US",
+    billingName: same ? shippingName : (account.billingName ?? card.cardholderName),
+    billingPhone: same ? shippingPhone : (account.billingPhone ?? ""),
+    billingAddress: same ? shippingAddress : (account.billingAddr ?? ""),
+    billingPostCode: same ? shippingPostCode : (account.billingZip ?? ""),
+    billingCity: same ? shippingCity : (account.billingCity ?? ""),
+    billingState: same ? shippingState : (account.billingState ?? ""),
+    billingCountry: "US",
+    otherEntriesList: JSON.stringify({ acoAccountId: account.id, retailer }),
+    sizeOptional: "",
+  });
+}

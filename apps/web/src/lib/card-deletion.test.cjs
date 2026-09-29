@@ -58,11 +58,19 @@ function setup() {
   });
   const route = load("../app/api/aco-accounts/[id]/payment-info/route.ts", {
     "@chudaco/db": { prisma: {
-      acoAccount: { findFirst: async ({ where }) => {
-        assert.equal(where.id, "account");
-        assert.equal(where.userId, "owner");
-        return state.owned ? { id: "account" } : null;
-      } },
+      acoAccount: {
+        findFirst: async ({ where }) => {
+          assert.equal(where.id, "account");
+          assert.equal(where.userId, "owner");
+          return state.owned ? { id: "account" } : null;
+        },
+        update: async ({ where, data }) => {
+          assert.equal(where.id, "account");
+          assert.deepEqual(Object.keys(data), ["cardId"]);
+          assert.equal(data.cardId, null);
+          state.defaultCardUnlinked = true;
+        },
+      },
       cardOnFile: { deleteMany: async ({ where }) => {
         assert.equal(where.acoAccountId, "account");
         state.defaultCard = false;
@@ -99,6 +107,7 @@ test("explicit default-card deletion leaves retailer cards intact", async () => 
   const { state, remove } = setup();
   assert.equal((await remove({ retailer: null })).status, 200);
   assert.equal(state.defaultCard, false);
+  assert.equal(state.defaultCardUnlinked, true);
   assert.deepEqual(state.cards, ["Sam's Club", "Costco"]);
   assert.equal(state.rows.length, 4);
 });

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getAuthenticatedContext } from "@/lib/api-auth";
 import { deleteGoogleSheetRowsForAccount, upsertGoogleSheetAccountRow } from "@/lib/google-sheets-relay";
 import {
-  buildGoogleSheetRow,
+  buildAccountCardSheetRow,
   getCardLast4,
   normalizeExpirationYear,
   normalizeCardNumber,
@@ -109,6 +109,7 @@ export async function DELETE(request: Request, context: RouteParams) {
 
   if (retailer === null) {
     await prisma.cardOnFile.deleteMany({ where: { acoAccountId: account.id } });
+    await prisma.acoAccount.update({ where: { id: account.id }, data: { cardId: null } });
   } else {
     await prisma.acoRetailerCard.deleteMany({
       where: { acoAccountId: account.id, retailer: { equals: retailer, mode: "insensitive" } },
@@ -169,67 +170,18 @@ export async function POST(request: Request, context: RouteParams) {
     return NextResponse.json({ error: "Invalid card number" }, { status: 400 });
   }
 
-  const profileName = account.botProfileName;
-  const emailAddress = account.loginEmail ?? account.email ?? "";
-  const shippingName = account.shippingName ?? "";
-  const shippingPhone = account.shippingPhone ?? "";
-  const shippingAddress = account.shippingAddr ?? "";
-  const shippingCity = account.shippingCity ?? "";
-  const shippingState = account.shippingState ?? "";
-  const shippingPostCode = account.shippingZip ?? "";
-  const shippingCountry = "US";
-  const billingName = account.billingSameAsShipping
-    ? shippingName
-    : (account.billingName ?? parsed.data.cardholderName);
-  const billingPhone = account.billingSameAsShipping
-    ? shippingPhone
-    : (account.billingPhone ?? "");
-  const billingAddress = account.billingSameAsShipping
-    ? shippingAddress
-    : (account.billingAddr ?? "");
-  const billingCity = account.billingSameAsShipping
-    ? shippingCity
-    : (account.billingCity ?? "");
-  const billingState = account.billingSameAsShipping
-    ? shippingState
-    : (account.billingState ?? "");
-  const billingPostCode = account.billingSameAsShipping
-    ? shippingPostCode
-    : (account.billingZip ?? "");
-  const billingCountry = shippingCountry;
-  const otherEntriesList = JSON.stringify({
-    acoAccountId: account.id,
+  const sheetRow = buildAccountCardSheetRow(
+    account,
+    {
+      cardholderName: parsed.data.cardholderName,
+      cardBrand: parsed.data.cardBrand,
+      cardNumber: normalizedCardNumber,
+      expMonth: parsed.data.expMonth,
+      expYear: normalizedExpYear,
+      cvv: parsed.data.cvv,
+    },
     retailer,
-  });
-
-  const sheetRow = buildGoogleSheetRow({
-    emailAddress,
-    profileName,
-    onlyOneCheckout: account.onlyOneCheckout,
-    sameBillingShipping: account.billingSameAsShipping,
-    nameOnCard: parsed.data.cardholderName,
-    cardType: parsed.data.cardBrand,
-    cardNumber: normalizedCardNumber,
-    expirationMonth: parsed.data.expMonth,
-    expirationYear: normalizedExpYear,
-    cvv: parsed.data.cvv,
-    shippingName,
-    shippingPhone,
-    shippingAddress,
-    shippingPostCode,
-    shippingCity,
-    shippingState,
-    shippingCountry,
-    billingName,
-    billingPhone,
-    billingAddress,
-    billingPostCode,
-    billingCity,
-    billingState,
-    billingCountry,
-    otherEntriesList,
-    sizeOptional: "",
-  });
+  );
 
   try {
     await upsertGoogleSheetAccountRow(account.id, sheetRow);
@@ -259,6 +211,7 @@ export async function POST(request: Request, context: RouteParams) {
           },
         },
         update: {
+          cardId: null,
           cardBrand: parsed.data.cardBrand,
           last4: getCardLast4(normalizedCardNumber),
           expMonth: parsed.data.expMonth,
@@ -293,6 +246,10 @@ export async function POST(request: Request, context: RouteParams) {
           cardholderName: parsed.data.cardholderName,
         },
       });
+
+  if (!retailer) {
+    await prisma.acoAccount.update({ where: { id: account.id }, data: { cardId: null } });
+  }
 
   return NextResponse.json({
     data: sanitizeCardOnFile({

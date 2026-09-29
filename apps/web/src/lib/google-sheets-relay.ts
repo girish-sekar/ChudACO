@@ -201,6 +201,165 @@ export async function upsertGoogleSheetAccountRowMerged(
   }
 }
 
+export type CardVaultEntry = {
+  cardholderName: string;
+  cardBrand: string;
+  cardNumber: string;
+  expMonth: number;
+  expYear: number;
+  cvv: string;
+};
+
+const CARD_VAULT_HEADERS = ["Card ID", "Name on Card", "Card Type", "Card Number", "Expiration Month", "Expiration Year", "CVV"];
+
+function cardVaultTabName(): string {
+  return process.env.GOOGLE_SHEETS_CARD_VAULT_TAB_NAME?.trim() || "ChudACO Card Vault";
+}
+
+function cardVaultRange(range: string): string {
+  return `'${cardVaultTabName().replace(/'/g, "''")}'!${range}`;
+}
+
+// Library cards live in their own tab so bots importing the main tab never see unlinked cards.
+async function ensureCardVaultTab() {
+  const { sheets, spreadsheetId } = await getSheetsClient();
+  const tab = cardVaultTabName();
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId });
+  if ((metadata.data.sheets ?? []).some((sheet) => sheet.properties?.title === tab)) {
+    return { sheets, spreadsheetId };
+  }
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [{ addSheet: { properties: { title: tab } } }] },
+  });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: cardVaultRange("A1:G1"),
+    valueInputOption: "RAW",
+    requestBody: { values: [CARD_VAULT_HEADERS] },
+  });
+  return { sheets, spreadsheetId };
+}
+
+async function findCardVaultRowNumber(cardId: string): Promise<number | null> {
+  const { sheets, spreadsheetId } = await ensureCardVaultTab();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: cardVaultRange("A2:A") });
+  const index = (response.data.values ?? []).findIndex((row) => String(row?.[0] ?? "").trim() === cardId);
+  return index === -1 ? null : index + 2;
+}
+
+export async function upsertCardVaultRow(cardId: string, entry: CardVaultEntry) {
+  const { sheets, spreadsheetId } = await ensureCardVaultTab();
+  const values = [vaultRowValues(cardId, entry)];
+  const rowNumber = await findCardVaultRowNumber(cardId);
+
+  if (rowNumber === null) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: cardVaultRange("A:G"),
+      valueInputOption: "RAW",
+      requestBody: { values },
+    });
+    return;
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: cardVaultRange(`A${rowNumber}:G${rowNumber}`),
+    valueInputOption: "RAW",
+    requestBody: { values },
+  });
+}
+
+export async function getCardVaultRow(cardId: string): Promise<CardVaultEntry | null> {
+  const rowNumber = await findCardVaultRowNumber(cardId);
+  if (rowNumber === null) return null;
+
+  const { sheets, spreadsheetId } = await getSheetsClient();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: cardVaultRange(`A${rowNumber}:G${rowNumber}`),
+  });
+  const row = (response.data.values?.[0] ?? []).map((value) => String(value ?? ""));
+  return parseVaultRow(row);
+}
+
+function vaultRowValues(cardId: string, entry: CardVaultEntry): string[] {
+  return [
+    cardId,
+    entry.cardholderName,
+    entry.cardBrand,
+    entry.cardNumber,
+    String(entry.expMonth),
+    String(entry.expYear),
+    entry.cvv,
+  ];
+}
+
+function parseVaultRow(row: string[]): CardVaultEntry | null {
+  if (!row[3] || !row[6]) return null;
+  return {
+    cardholderName: row[1] ?? "",
+    cardBrand: row[2] ?? "",
+    cardNumber: row[3],
+    expMonth: Number(row[4]),
+    expYear: Number(row[5]),
+    cvv: row[6],
+  };
+}
+
+export async function getAllCardVaultRows(): Promise<Map<string, CardVaultEntry>> {
+  const { sheets, spreadsheetId } = await ensureCardVaultTab();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: cardVaultRange("A2:G") });
+  const entries = new Map<string, CardVaultEntry>();
+  for (const raw of response.data.values ?? []) {
+    const row = raw.map((value) => String(value ?? ""));
+    const entry = parseVaultRow(row);
+    if (row[0] && entry) entries.set(row[0].trim(), entry);
+  }
+  return entries;
+}
+
+export async function appendCardVaultRows(rows: Array<{ cardId: string; entry: CardVaultEntry }>) {
+  if (rows.length === 0) return;
+  const { sheets, spreadsheetId } = await ensureCardVaultTab();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: cardVaultRange("A:G"),
+    valueInputOption: "RAW",
+    requestBody: { values: rows.map(({ cardId, entry }) => vaultRowValues(cardId, entry)) },
+  });
+}
+
+export async function getMainSheetRows(): Promise<string[][]> {
+  const { sheets, spreadsheetId, sheetName } = await getSheetsClient();
+  const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${sheetName}!A:AD` });
+  return (response.data.values ?? []).map((row) => row.map((value) => String(value ?? "")));
+}
+
+export async function deleteCardVaultRow(cardId: string) {
+  const rowNumber = await findCardVaultRowNumber(cardId);
+  if (rowNumber === null) return;
+
+  const { sheets, spreadsheetId } = await getSheetsClient();
+  const tab = cardVaultTabName();
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetId = (metadata.data.sheets ?? []).find((sheet) => sheet.properties?.title === tab)?.properties?.sheetId;
+  if (sheetId === undefined || sheetId === null) return;
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{
+        deleteDimension: {
+          range: { sheetId, dimension: "ROWS", startIndex: rowNumber - 1, endIndex: rowNumber },
+        },
+      }],
+    },
+  });
+}
+
 type ShippingSyncInput = {
   accountId: string;
   botProfileName: string;

@@ -73,6 +73,9 @@ type SanitizedAcoAccount = {
   imapSecurity: string;
   imapConfigured: boolean;
   lastSyncAt: Date | null;
+  profileId: string | null;
+  imapConfigId: string | null;
+  cardId: string | null;
   retailerLogins: {
     id: string;
     retailer: string;
@@ -82,6 +85,7 @@ type SanitizedAcoAccount = {
   retailerCards?: {
     id: string;
     retailer: string;
+    cardId: string | null;
     cardBrand: string | null;
     last4: string | null;
     expMonth: number | null;
@@ -161,6 +165,9 @@ function sanitizeAcoAccount(account: {
   encryptedPassword: string | null;
   encryptionIv: string | null;
   lastSyncAt: Date | null;
+  profileId?: string | null;
+  imapConfigId?: string | null;
+  cardId?: string | null;
   retailerLogins: {
     id: string;
     retailer: string;
@@ -170,6 +177,7 @@ function sanitizeAcoAccount(account: {
   retailerCards?: {
     id: string;
     retailer: string;
+    cardId?: string | null;
     cardBrand: string | null;
     last4: string | null;
     expMonth: number | null;
@@ -208,10 +216,14 @@ function sanitizeAcoAccount(account: {
     imapSecurity: account.imapSecurity,
     imapConfigured: Boolean(account.email && account.imapHost && account.encryptedPassword && account.encryptionIv),
     lastSyncAt: account.lastSyncAt,
+    profileId: account.profileId ?? null,
+    imapConfigId: account.imapConfigId ?? null,
+    cardId: account.cardId ?? null,
     retailerLogins: account.retailerLogins,
     retailerCards: account.retailerCards?.map((card) => ({
       id: card.id,
       retailer: card.retailer,
+      cardId: card.cardId ?? null,
       cardBrand: card.cardBrand,
       last4: card.last4,
       expMonth: card.expMonth,
@@ -263,6 +275,9 @@ export async function GET() {
       encryptedPassword: true,
       encryptionIv: true,
       lastSyncAt: true,
+      profileId: true,
+      imapConfigId: true,
+      cardId: true,
       retailerLogins: {
         select: {
           id: true,
@@ -276,6 +291,7 @@ export async function GET() {
         select: {
           id: true,
           retailer: true,
+          cardId: true,
           cardBrand: true,
           last4: true,
           expMonth: true,
