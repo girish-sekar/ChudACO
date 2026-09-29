@@ -88,9 +88,10 @@ export async function GET(request: NextRequest) {
     retailerEntry.volume += price;
     retailerMap.set(retailerKey, retailerEntry);
 
+    const itemQuantity = parseItemQuantity(checkout.qtyLabel);
     const itemEntry = itemMap.get(checkout.item) ?? { count: 0, volume: 0 };
-    itemEntry.count += parseItemQuantity(checkout.qtyLabel);
-    itemEntry.volume += price;
+    itemEntry.count += itemQuantity;
+    itemEntry.volume += price * itemQuantity;
     itemMap.set(checkout.item, itemEntry);
 
     const dayKey = toDayKey(checkout.occurredAt);
@@ -144,9 +145,10 @@ export async function GET(request: NextRequest) {
       buyerEntry.volume += price;
       combinedBuyerMap.set(buyerKey, buyerEntry);
 
+      const itemQuantity = parseItemQuantity(gap.quantity);
       const itemEntry = combinedItemMap.get(gap.item) ?? { count: 0, volume: 0 };
-      itemEntry.count += parseItemQuantity(gap.quantity);
-      itemEntry.volume += price;
+      itemEntry.count += itemQuantity;
+      itemEntry.volume += price * itemQuantity;
       combinedItemMap.set(gap.item, itemEntry);
 
       const dayKey = toDayKey(new Date(gap.occurredAt));
