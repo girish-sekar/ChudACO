@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAuthenticatedContext } from "@/lib/api-auth";
 import { encryptImapPassword } from "@/lib/crypto";
 import { upsertGoogleSheetShippingFields } from "@/lib/google-sheets-relay";
+import { linkClassicAccountToLibrary } from "@/lib/aco-library";
 
 const createAcoAccountSchema = z.object({
   label: z.string().trim().min(1),
@@ -93,6 +94,7 @@ type SanitizedAcoAccount = {
     cardholderName: string | null;
     updatedAt: Date;
   }[];
+  retailerProfiles?: { retailer: string; profileId: string }[];
 };
 
 const DEFAULT_MAX_ACCOUNTS_PER_USER = 5;
@@ -185,6 +187,7 @@ function sanitizeAcoAccount(account: {
     cardholderName: string | null;
     updatedAt: Date;
   }[];
+  retailerProfiles?: { retailer: string; profileId: string }[];
 }): SanitizedAcoAccount {
   return {
     id: account.id,
@@ -231,6 +234,7 @@ function sanitizeAcoAccount(account: {
       cardholderName: card.cardholderName,
       updatedAt: card.updatedAt,
     })),
+    retailerProfiles: account.retailerProfiles,
   };
 }
 
@@ -301,6 +305,7 @@ export async function GET() {
         },
         orderBy: { retailer: "asc" },
       },
+      retailerProfiles: { select: { retailer: true, profileId: true }, orderBy: { retailer: "asc" } },
     },
     orderBy: { label: "asc" },
   });
@@ -509,6 +514,9 @@ export async function POST(request: Request) {
         ? `Account created, but Google Sheets sync failed: ${error.message}`
         : "Account created, but Google Sheets sync failed.";
   }
+
+  const libraryWarning = await linkClassicAccountToLibrary(account.id);
+  if (libraryWarning) syncWarning = [syncWarning, libraryWarning].filter(Boolean).join(" ");
 
   return NextResponse.json({ data: sanitizeAcoAccount(account), warning: syncWarning }, { status: 201 });
 }

@@ -61,7 +61,13 @@ function blob(b) {
   return [b?.title, b?.message, b?.content, b?.status, b?.event, b?.type, b?.result, b?.embeds?.[0]?.title, b?.embeds?.[0]?.description]
     .filter(Boolean).map(v => String(v).toLowerCase()).join(" ");
 }
-function isTest(b) { return /test webhook|testing|webhook test|ping|bing bong|configured and working/.test(blob(b)); }
+function isTest(b) { return /test webhook|testing|webhook test|ping|bing bong|configured and working/.test(blob(b)) || isEmptyEmbedPing(b); }
+// Polar AIO's test webhook is just a titled embed with no fields, description or profile.
+function isEmptyEmbedPing(b) {
+  const e = b?.embeds?.[0];
+  if (!e || e.description || (Array.isArray(e.fields) && e.fields.length)) return false;
+  return !pick(b, {}, ["profileName", "profile_name", "profile"], [], "");
+}
 function isHayhaSuccess(b) { return /successful checkout|way to go|checked out|checkout success|\bsuccess\b/.test(blob(b)); }
 
 // Bots wrap values in Discord spoiler bars (||value||); strip them off.
@@ -121,8 +127,7 @@ function itemFromDescription(b) {
 function sanitize(b) {
   const m = fieldsMap(b);
   const item = pick(b, m, ["item", "product", "title"], ["item", "product"], "") || itemFromDescription(b) || "unknown";
-  const qtyRaw = pick(b, m, ["quantity", "qty"], ["quantity"], "0");
-  const qty = Number.isFinite(parseInt(qtyRaw, 10)) ? String(parseInt(qtyRaw, 10)) : "0";
+  const qty = quantityOf(pick(b, m, ["quantity", "qty"], ["quantity", "qty"], ""));
   const profile = normalizeProfileName(pick(b, m, ["profileName", "profile_name", "profile"], ["profile name", "profile"], "unknown"));
   return {
     profile,
@@ -137,6 +142,12 @@ function sanitize(b) {
     orderNumber: orderNumberOf(b, m),
     image: imageOf(b)
   };
+}
+// Values may be wrapped in markdown/spoilers ("**||2||**", "x2"); a checkout always implies at least 1.
+function quantityOf(raw) {
+  const match = String(raw || "").match(/\d+/);
+  const n = match ? parseInt(match[0], 10) : 0;
+  return n > 0 ? String(n) : "1";
 }
 function orderNumberOf(b, m) {
   const raw = pick(

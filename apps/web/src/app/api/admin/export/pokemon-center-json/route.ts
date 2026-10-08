@@ -6,6 +6,8 @@ import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
 import { resolveExportEmail } from "@/lib/export-email";
 import { getGoogleSheetsConfig } from "@/lib/payment-info";
 import { findSheetCardRow } from "@/lib/sheet-card";
+import { withRetailerProfile } from "@/lib/aco-library";
+import { accountIdFilter } from "@/lib/admin-export";
 
 const querySchema = z.object({
   retailer: z.string().trim().min(1).optional(),
@@ -241,6 +243,7 @@ export async function GET(request: NextRequest) {
 
   const accounts = await prisma.acoAccount.findMany({
     where: {
+      ...accountIdFilter(request),
       OR: [
         ...effectiveRetailerFilters.map((retailer) => ({
           retailer: { equals: retailer, mode: "insensitive" as const },
@@ -259,6 +262,7 @@ export async function GET(request: NextRequest) {
       cardOnFile: true,
       retailerCards: true,
       retailerLogins: true,
+      retailerProfiles: { include: { profile: true } },
     },
   });
 
@@ -279,7 +283,12 @@ export async function GET(request: NextRequest) {
         effectiveRetailerFilters.some((rf) => rf.toLowerCase() === l.retailer.toLowerCase())
       );
     })
-    .map((account) => {
+    .map((loadedAccount) => {
+      const selectedRetailer =
+        effectiveRetailerFilters.find((retailer) =>
+          loadedAccount.retailerLogins.some((login) => login.retailer.toLowerCase() === retailer.toLowerCase()),
+        ) ?? effectiveRetailerFilters[0];
+      const account = withRetailerProfile(loadedAccount, selectedRetailer);
       const shippingName = splitName(account.shippingName ?? account.billingName ?? account.botProfileName ?? "");
       const billingName = splitName(account.billingSameAsShipping ? account.shippingName ?? account.billingName : account.billingName ?? account.shippingName ?? "");
       const shippingAddress = buildAddressBlock(account.shippingAddr, account.shippingCity, account.shippingState, account.shippingZip);
@@ -289,10 +298,6 @@ export async function GET(request: NextRequest) {
         account.billingSameAsShipping ? account.shippingState ?? account.billingState : account.billingState,
         account.billingSameAsShipping ? account.shippingZip ?? account.billingZip : account.billingZip,
       );
-      const selectedRetailer =
-        effectiveRetailerFilters.find((retailer) =>
-          account.retailerLogins.some((login) => login.retailer.toLowerCase() === retailer.toLowerCase()),
-        ) ?? effectiveRetailerFilters[0];
       const retailerCard = account.retailerCards.find(
         (card) => card.retailer.trim().toLowerCase() === selectedRetailer.trim().toLowerCase(),
       );

@@ -1,15 +1,20 @@
 export default {
   async fetch(request, env) {
     try {
+      console.log("request", request.method);
       if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") return ok("alive");
       if (request.method !== "POST") return ok("ignored");
 
       if (env.RELAY_SECRET) {
         const secret = request.headers.get("x-relay-secret") || "";
-        if (secret !== env.RELAY_SECRET) return ok("accepted");
+        if (secret !== env.RELAY_SECRET) {
+          console.log("rejected: x-relay-secret mismatch");
+          return ok("accepted");
+        }
       }
 
       const body = await parseBody(request);
+      console.log("raw body", JSON.stringify(body).slice(0, 1000));
 
       if (isTest(body)) {
         const s = buildTestCheckoutPayload();
@@ -23,6 +28,7 @@ export default {
       }
 
       const kind = hayhaDeclineKind(body);
+      console.log("decline kind", kind);
       if (kind === "other") return ok("not decline");
 
       const s = sanitize(body);
@@ -51,7 +57,13 @@ function blob(b) {
   return [b?.title, b?.message, b?.content, b?.status, b?.event, b?.type, b?.result, b?.embeds?.[0]?.title, b?.embeds?.[0]?.description]
     .filter(Boolean).map(v => String(v).toLowerCase()).join(" ");
 }
-function isTest(b) { return /test webhook|testing|webhook test|ping/.test(blob(b)); }
+function isTest(b) { return /test webhook|testing|webhook test|ping|bing bong|configured and working/.test(blob(b)) || isEmptyEmbedPing(b); }
+// Polar AIO's test webhook is just a titled embed with no fields, description or profile.
+function isEmptyEmbedPing(b) {
+  const e = b?.embeds?.[0];
+  if (!e || e.description || (Array.isArray(e.fields) && e.fields.length)) return false;
+  return !pick(b, {}, ["profileName", "profile_name", "profile"], [], "");
+}
 function hayhaDeclineKind(b) {
   const t = blob(b);
   if (/payment declined|card declined|\bdeclined\b/.test(t)) return "declined";
@@ -114,8 +126,7 @@ function itemFromDescription(b) {
 function sanitize(b) {
   const m = fieldsMap(b);
   const item = pick(b, m, ["item", "product", "title"], ["item", "product"], "") || itemFromDescription(b) || "unknown";
-  const qtyRaw = pick(b, m, ["quantity", "qty"], ["quantity"], "0");
-  const qty = Number.isFinite(parseInt(qtyRaw, 10)) ? String(parseInt(qtyRaw, 10)) : "0";
+  const qty = quantityOf(pick(b, m, ["quantity", "qty"], ["quantity", "qty"], ""));
   const profile = normalizeProfileName(pick(b, m, ["profileName", "profile_name", "profile"], ["profile name", "profile"], "unknown"));
   return {
     profile,
@@ -130,6 +141,12 @@ function sanitize(b) {
     orderNumber: orderNumberOf(b, m),
     image: imageOf(b)
   };
+}
+// Values may be wrapped in markdown/spoilers ("**||2||**", "x2"); a checkout always implies at least 1.
+function quantityOf(raw) {
+  const match = String(raw || "").match(/\d+/);
+  const n = match ? parseInt(match[0], 10) : 0;
+  return n > 0 ? String(n) : "1";
 }
 function orderNumberOf(b, m) {
   const raw = pick(

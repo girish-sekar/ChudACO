@@ -5,6 +5,7 @@ import { getAuthenticatedContext } from "@/lib/api-auth";
 import { encryptImapPassword } from "@/lib/crypto";
 import { deleteGoogleSheetRowsForAccount } from "@/lib/google-sheets-relay";
 import { upsertGoogleSheetShippingFields } from "@/lib/google-sheets-relay";
+import { linkClassicAccountToLibrary } from "@/lib/aco-library";
 
 const updateAcoAccountSchema = z.object({
   label: z.string().trim().min(1),
@@ -385,6 +386,9 @@ async function handleUpdate(request: Request, context: RouteParams) {
         ? `Account updated, but Google Sheets sync failed: ${error.message}`
         : "Account updated, but Google Sheets sync failed.";
   }
+
+  const libraryWarning = await linkClassicAccountToLibrary(account.id);
+  if (libraryWarning) syncWarning = [syncWarning, libraryWarning].filter(Boolean).join(" ");
 
   return NextResponse.json({ data: sanitizeAcoAccount(account), warning: syncWarning });
 }

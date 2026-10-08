@@ -24,6 +24,7 @@ export const authConfig: NextAuthConfig = {
     Discord({
       clientId: process.env.DISCORD_CLIENT_ID?.trim() ?? "",
       clientSecret: process.env.DISCORD_CLIENT_SECRET?.trim() ?? "",
+      issuer: "https://discord.com",
       authorization: {
         params: {
           scope: "identify guilds guilds.members.read",

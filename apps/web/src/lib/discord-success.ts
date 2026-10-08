@@ -30,6 +30,16 @@ function parsePriceToNumber(raw: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function knownEtbUnitPrice(item: string): number | null {
+  if (/30th celebration.*elite trainer box|elite trainer box.*30th celebration/i.test(item)) {
+    return 69.99;
+  }
+  if (/delta reign.*elite trainer box|elite trainer box.*delta reign/i.test(item)) {
+    return 59.99;
+  }
+  return null;
+}
+
 type DiscordEmbedField = { name?: string; value?: string };
 type DiscordEmbed = { title?: string; fields?: DiscordEmbedField[] };
 type DiscordMessage = { id: string; timestamp: string; embeds?: DiscordEmbed[] };
@@ -40,7 +50,7 @@ export type ParsedSuccessMessage = {
   profile: string;
   item: string;
   quantity: string;
-  price: number;
+  price: number | null;
 };
 
 function fieldsMap(embed: DiscordEmbed): Map<string, string> {
@@ -61,9 +71,14 @@ function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage | null
   const profile = fields.get("profile name");
   const item = fields.get("item");
   const priceRaw = fields.get("price");
-  const price = priceRaw ? parsePriceToNumber(priceRaw) : null;
+  const parsedPrice = priceRaw ? parsePriceToNumber(priceRaw) : null;
+  const quantity = fields.get("quantity") ?? "0";
+  const parsedQuantity = Number.parseInt(quantity, 10);
+  const itemQuantity = Number.isSafeInteger(parsedQuantity) && parsedQuantity > 0 ? parsedQuantity : 1;
+  const unitPrice = item ? knownEtbUnitPrice(item) : null;
+  const price = parsedPrice ?? (unitPrice === null ? null : unitPrice * itemQuantity);
 
-  if (!profile || !item || price === null) {
+  if (!profile || !item) {
     return null;
   }
 
@@ -72,7 +87,7 @@ function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage | null
     occurredAt: new Date(message.timestamp),
     profile: normalizeProfileName(profile),
     item,
-    quantity: fields.get("quantity") ?? "0",
+    quantity,
     price,
   };
 }

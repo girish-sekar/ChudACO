@@ -2,6 +2,7 @@ import { prisma } from "@chudaco/db";
 import { NextResponse } from "next/server";
 import { getAuthenticatedContext } from "@/lib/api-auth";
 import { deleteGoogleSheetRowsForAccount, upsertGoogleSheetAccountRow } from "@/lib/google-sheets-relay";
+import { linkClassicAccountToLibrary } from "@/lib/aco-library";
 import {
   buildAccountCardSheetRow,
   getCardLast4,
@@ -251,11 +252,14 @@ export async function POST(request: Request, context: RouteParams) {
     await prisma.acoAccount.update({ where: { id: account.id }, data: { cardId: null } });
   }
 
+  const warning = await linkClassicAccountToLibrary(account.id);
+
   return NextResponse.json({
     data: sanitizeCardOnFile({
       ...cardRecord,
       acoAccountId: account.id,
       retailer: retailer ?? null,
     }),
+    warning,
   });
 }

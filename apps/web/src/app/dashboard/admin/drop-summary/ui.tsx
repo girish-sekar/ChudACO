@@ -61,8 +61,8 @@ export default function DropSummaryDashboard() {
 
   const endpoint = useMemo(() => {
     const params = new URLSearchParams();
-    params.set("from", new Date(`${from}T00:00:00.000Z`).toISOString());
-    params.set("to", new Date(`${to}T23:59:59.999Z`).toISOString());
+    params.set("from", new Date(`${from}T00:00:00.000`).toISOString());
+    params.set("to", new Date(`${to}T23:59:59.999`).toISOString());
     return `/api/admin/drop-summary?${params.toString()}`;
   }, [from, to]);
 
@@ -163,13 +163,21 @@ export default function DropSummaryDashboard() {
               </p>
             </article>
             <article className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
-              <p className="text-xs text-[#605E72]">Total volume</p>
+              <p className="text-xs text-[#605E72]">
+                {data.reconciliation.configured && data.reconciliation.unpricedGapCount > 0
+                  ? "Known-price volume"
+                  : "Total volume"}
+              </p>
               <p className="mt-2 font-heading text-3xl font-bold">
                 {toCurrency(data.totals.totalDollarVolume)}
               </p>
             </article>
             <article className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
-              <p className="text-xs text-[#605E72]">Avg. order value</p>
+              <p className="text-xs text-[#605E72]">
+                {data.reconciliation.configured && data.reconciliation.unpricedGapCount > 0
+                  ? "Avg. priced order value"
+                  : "Avg. order value"}
+              </p>
               <p className="mt-2 font-heading text-3xl font-bold">
                 {toCurrency(data.totals.averageOrderValue)}
               </p>
@@ -196,7 +204,11 @@ export default function DropSummaryDashboard() {
                       <th className="pb-2 font-normal">Item</th>
                       <th className="pb-2 font-normal">Items</th>
                       <th className="pb-2 font-normal">Price per item</th>
-                      <th className="pb-2 font-normal">Volume</th>
+                      <th className="pb-2 font-normal">
+                        {data.reconciliation.configured && data.reconciliation.unpricedGapCount > 0
+                          ? "Known-price volume"
+                          : "Volume"}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -205,7 +217,9 @@ export default function DropSummaryDashboard() {
                         <td className="py-2 pr-4 text-[#F2F1F6]">{row.item}</td>
                         <td className="py-2 pr-4 text-[#9C9AAE]">{row.count}</td>
                         <td className="py-2 pr-4 text-[#9C9AAE]">
-                          {toCurrency(row.count > 0 ? Number(row.volume) / row.count : 0)}
+                          {row.pricedCount > 0
+                            ? toCurrency(Number(row.volume) / row.pricedCount)
+                            : "Unknown"}
                         </td>
                         <td className="py-2 text-[#9C9AAE]">{toCurrency(row.volume)}</td>
                       </tr>
@@ -313,12 +327,18 @@ export default function DropSummaryDashboard() {
                     </p>
                   </article>
                   <article className="rounded-xl border border-[#2C2D3A] bg-[#101014] p-4">
-                    <p className="text-xs text-[#605E72]">Recoverable volume</p>
+                    <p className="text-xs text-[#605E72]">Known-price recoverable volume</p>
                     <p className="mt-2 font-heading text-2xl font-bold">
                       {toCurrency(data.reconciliation.gapVolume)}
                     </p>
                   </article>
                 </div>
+                {data.reconciliation.unpricedGapCount > 0 ? (
+                  <p className="mt-3 text-sm text-[#FFCB3C]">
+                    {data.reconciliation.unpricedGapCount} Discord success(es) had no price; they are included in
+                    checkout and item counts, but excluded from dollar totals.
+                  </p>
+                ) : null}
 
                 {data.reconciliation.gaps.length === 0 ? (
                   <p className="mt-4 text-sm text-[#605E72]">
@@ -352,7 +372,9 @@ export default function DropSummaryDashboard() {
                             <td className="py-2 pr-4 font-mono text-xs text-[#605E72]">{gap.profile}</td>
                             <td className="py-2 pr-4 text-[#F2F1F6]">{gap.item}</td>
                             <td className="py-2 pr-4 text-[#9C9AAE]">{gap.quantity}</td>
-                            <td className="py-2 text-[#9C9AAE]">{toCurrency(gap.price)}</td>
+                            <td className="py-2 text-[#9C9AAE]">
+                              {gap.price === "unknown" ? "Unknown" : toCurrency(gap.price)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

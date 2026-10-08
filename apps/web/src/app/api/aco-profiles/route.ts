@@ -1,7 +1,7 @@
 import { prisma } from "@chudaco/db";
 import { NextResponse } from "next/server";
 import { getAuthenticatedContext } from "@/lib/api-auth";
-import { linkedAccountsSelect, normalizeProfile, profileSchema } from "@/lib/aco-library";
+import { normalizeProfile, profileInclude, profileSchema } from "@/lib/aco-library";
 
 export async function GET() {
   const authContext = await getAuthenticatedContext();
@@ -11,7 +11,7 @@ export async function GET() {
 
   const profiles = await prisma.acoProfile.findMany({
     where: { userId: authContext.userId },
-    include: linkedAccountsSelect,
+    include: profileInclude,
     orderBy: { name: "asc" },
   });
 
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
 
   const profile = await prisma.acoProfile.create({
     data: { userId: authContext.userId, ...normalizeProfile(parsed.data) },
-    include: linkedAccountsSelect,
+    include: profileInclude,
   });
 
   return NextResponse.json({ data: profile }, { status: 201 });

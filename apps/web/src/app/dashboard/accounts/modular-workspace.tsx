@@ -21,8 +21,8 @@ type CsvRow = Record<string, string>;
 type ImportState = { rows: CsvRow[]; error: string | null; fileName: string };
 type Editor = { section: Section; id: string | null };
 type LoginDraft = { retailer: string; loginEmail: string; loginPassword: string; enabled: boolean };
-type LinkDraft = { profileId: string; cardId: string; imapConfigId: string; retailerCards: Record<string, string> };
-type LinkKey = Exclude<keyof LinkDraft, "retailerCards">;
+type LinkDraft = { profileId: string; cardId: string; imapConfigId: string; retailerCards: Record<string, string>; retailerProfiles: Record<string, string> };
+type LinkKey = Exclude<keyof LinkDraft, "retailerCards" | "retailerProfiles">;
 
 const emailProviders = Object.keys(EMAIL_PROVIDER_HOSTS);
 
@@ -223,6 +223,13 @@ function cardLinkLabels(card: AcoCardEntry): string[] {
   ];
 }
 
+function profileLinkLabels(profile: AcoProfileEntry): string[] {
+  return [
+    ...profile.accounts.map((account) => `#${account.accountNumber} ${account.label}`),
+    ...(profile.retailerProfiles ?? []).map(({ retailer, acoAccount }) => `#${acoAccount.accountNumber} ${acoAccount.label} (${retailer})`),
+  ];
+}
+
 export function ModularAccountsWorkspace({
   accounts,
   cardByAccount,
@@ -260,7 +267,7 @@ export function ModularAccountsWorkspace({
   const [editorError, setEditorError] = useState<string | null>(null);
   const [savingEditor, setSavingEditor] = useState(false);
   const [loginDrafts, setLoginDrafts] = useState<LoginDraft[]>([]);
-  const [linkDraft, setLinkDraft] = useState<LinkDraft>({ profileId: "", cardId: "", imapConfigId: "", retailerCards: {} });
+  const [linkDraft, setLinkDraft] = useState<LinkDraft>({ profileId: "", cardId: "", imapConfigId: "", retailerCards: {}, retailerProfiles: {} });
   const [importingCards, setImportingCards] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [testingImapId, setTestingImapId] = useState<string | null>(null);
@@ -277,12 +284,16 @@ export function ModularAccountsWorkspace({
   const editingImap = editor?.section === "imap" && editor.id ? imapById.get(editor.id) ?? null : null;
   const editingLinks = editingCard
     ? cardLinkLabels(editingCard)
-    : (editingProfile?.accounts ?? editingImap?.accounts ?? []).map((account) => `#${account.accountNumber} ${account.label}`);
+    : editingProfile
+      ? profileLinkLabels(editingProfile)
+      : (editingImap?.accounts ?? []).map((account) => `#${account.accountNumber} ${account.label}`);
   const draftRetailers = Array.from(
     new Map(loginDrafts.map((login) => login.retailer.trim()).filter(Boolean).map((retailer) => [retailer.toLowerCase(), retailer])).values(),
   );
   const draftRetailerCard = (retailer: string) =>
     Object.entries(linkDraft.retailerCards).find(([key]) => key.toLowerCase() === retailer.toLowerCase())?.[1] ?? "";
+  const draftRetailerProfile = (retailer: string) =>
+    Object.entries(linkDraft.retailerProfiles).find(([key]) => key.toLowerCase() === retailer.toLowerCase())?.[1] ?? "";
 
   const retailerChoices = Array.from(new Set([
     ...retailers,
@@ -352,6 +363,7 @@ export function ModularAccountsWorkspace({
         cardId: account?.cardId ?? "",
         imapConfigId: account?.imapConfigId ?? "",
         retailerCards: Object.fromEntries((account?.retailerCards ?? []).map((card) => [card.retailer, card.cardId ?? ""])),
+        retailerProfiles: Object.fromEntries((account?.retailerProfiles ?? []).map((entry) => [entry.retailer, entry.profileId])),
       });
     }
   }
@@ -491,6 +503,10 @@ export function ModularAccountsWorkspace({
           retailerCards: Object.fromEntries(
             Array.from(new Set(logins.map((login) => login.retailer)))
               .map((retailer) => [retailer, draftRetailerCard(retailer) || null]),
+          ),
+          retailerProfiles: Object.fromEntries(
+            Array.from(new Set(logins.map((login) => login.retailer)))
+              .map((retailer) => [retailer, draftRetailerProfile(retailer) || null]),
           ),
         });
         if (linked.warning) warnings.push(linked.warning);
@@ -961,6 +977,32 @@ export function ModularAccountsWorkspace({
                       </div>
                       {draftRetailers.length ? (
                         <div className="space-y-2">
+                          <h5 className="text-xs font-medium text-[#F2F1F6]">Retailer profiles</h5>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {draftRetailers.map((retailer) => (
+                              <label key={retailer.toLowerCase()} className="grid gap-1 text-xs text-[#9C9AAE]">
+                                <span>{retailer}</span>
+                                <select
+                                  value={draftRetailerProfile(retailer)}
+                                  onChange={(event) => setLinkDraft((draft) => ({
+                                    ...draft,
+                                    retailerProfiles: {
+                                      ...Object.fromEntries(Object.entries(draft.retailerProfiles).filter(([key]) => key.toLowerCase() !== retailer.toLowerCase())),
+                                      [retailer]: event.target.value,
+                                    },
+                                  }))}
+                                  className="min-w-0 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]"
+                                >
+                                  <option value="">Use default profile</option>
+                                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+                                </select>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {draftRetailers.length ? (
+                        <div className="space-y-2">
                           <h5 className="text-xs font-medium text-[#F2F1F6]">Retailer cards</h5>
                           <div className="grid gap-3 sm:grid-cols-2">
                             {draftRetailers.map((retailer) => {
@@ -1125,6 +1167,15 @@ export function ModularAccountsWorkspace({
                               <div className="text-xs text-[#9C9AAE]">{[profile.shippingCity, profile.shippingState].filter(Boolean).join(", ") || "No shipping address"}</div>
                             </>
                           ) : notLinked}
+                          {(account.retailerProfiles ?? []).length ? (
+                            <ul className="mt-2 space-y-1 border-t border-[#2C2D3A] pt-2 text-xs">
+                              {(account.retailerProfiles ?? []).map((entry) => (
+                                <li key={entry.retailer}>
+                                  <span className="text-[#605E72]">{entry.retailer}:</span> {profileById.get(entry.profileId)?.name ?? "Unknown profile"}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
                         </td>
                         <td className="px-3 py-3">
                           <div className="text-xs text-[#605E72]">Default</div>
@@ -1187,8 +1238,8 @@ export function ModularAccountsWorkspace({
                       <td className="px-3 py-3">{profile.name}</td>
                       <td className="px-3 py-3">{[profile.shippingName, profile.shippingAddr, profile.shippingCity, profile.shippingState, profile.shippingZip].filter(Boolean).join(", ") || "Not set"}</td>
                       <td className="px-3 py-3">{profile.billingSameAsShipping ? "Same as shipping" : [profile.billingName, profile.billingAddr, profile.billingCity, profile.billingState, profile.billingZip].filter(Boolean).join(", ") || "Not set"}</td>
-                      <td className="px-3 py-3">{linkedAccountsCell(profile.accounts)}</td>
-                      <td className="px-3 py-3">{libraryActions("profiles", profile.id, profile.name, profile.accounts.length)}</td>
+                      <td className="px-3 py-3">{profileLinkLabels(profile).join(", ") || <span className="text-[#605E72]">None</span>}</td>
+                      <td className="px-3 py-3">{libraryActions("profiles", profile.id, profile.name, profileLinkLabels(profile).length)}</td>
                     </tr>
                   ))}
                 </tbody>

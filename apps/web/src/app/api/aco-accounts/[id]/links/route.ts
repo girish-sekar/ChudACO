@@ -17,6 +17,8 @@ const linksSchema = z.object({
   cardId: z.string().min(1).nullable().optional(),
   // Retailer name -> library card id; null falls back to the default card.
   retailerCards: z.record(z.string().trim().min(1), z.string().min(1).nullable()).optional(),
+  // Retailer name -> library profile id; null falls back to the default profile.
+  retailerProfiles: z.record(z.string().trim().min(1), z.string().min(1).nullable()).optional(),
 });
 
 type RouteParams = {
@@ -46,6 +48,7 @@ export async function PUT(request: Request, context: RouteParams) {
       cardId: true,
       retailerLogins: { select: { retailer: true } },
       retailerCards: { select: { retailer: true, cardId: true } },
+      retailerProfiles: { select: { id: true, retailer: true, profileId: true } },
     },
   });
   if (!account) {
@@ -95,6 +98,30 @@ export async function PUT(request: Request, context: RouteParams) {
     : null;
   if (imapChanged && imapConfigId && !imap) {
     return NextResponse.json({ error: "IMAP inbox not found" }, { status: 404 });
+  }
+
+  const retailerProfileChanges: Array<{ retailer: string; existingId: string | null; profileId: string | null }> = [];
+  for (const [requestedRetailer, requestedProfileId] of Object.entries(parsed.data.retailerProfiles ?? {})) {
+    const retailer = accountRetailers.find((entry) => entry.toLowerCase() === requestedRetailer.toLowerCase());
+    if (!retailer) {
+      return NextResponse.json({ error: `This account has no ${requestedRetailer} login.` }, { status: 400 });
+    }
+    const current = account.retailerProfiles.find((entry) => entry.retailer.toLowerCase() === retailer.toLowerCase());
+    if (requestedProfileId === (current?.profileId ?? null)) continue;
+    retailerProfileChanges.push({ retailer: current?.retailer ?? retailer, existingId: current?.id ?? null, profileId: requestedProfileId });
+  }
+  const requestedProfileIds = Array.from(new Set(retailerProfileChanges.flatMap((change) => change.profileId ? [change.profileId] : [])));
+  const ownedProfiles = await prisma.acoProfile.count({ where: { id: { in: requestedProfileIds }, userId: authContext.userId } });
+  if (ownedProfiles !== requestedProfileIds.length) {
+    return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+  }
+  if (retailerProfileChanges.length) {
+    await prisma.$transaction(retailerProfileChanges.map((change) => {
+      if (!change.profileId) return prisma.acoRetailerProfile.delete({ where: { id: change.existingId! } });
+      return change.existingId
+        ? prisma.acoRetailerProfile.update({ where: { id: change.existingId }, data: { profileId: change.profileId } })
+        : prisma.acoRetailerProfile.create({ data: { acoAccountId: account.id, retailer: change.retailer, profileId: change.profileId } });
+    }));
   }
 
   if (profileChanged || imapChanged) {
@@ -153,6 +180,7 @@ export async function PUT(request: Request, context: RouteParams) {
       imapConfigId: true,
       cardId: true,
       retailerCards: { select: { retailer: true, cardId: true } },
+      retailerProfiles: { select: { id: true, retailer: true, profileId: true } },
     },
   });
 

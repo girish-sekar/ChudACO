@@ -133,6 +133,7 @@ model AcoAccount {
   cardOnFile        CardOnFile?
   retailerLogins    AcoRetailerLogin[]
   retailerCards     AcoRetailerCard[]
+  retailerProfiles  AcoRetailerProfile[]
 
   @@unique([userId, accountNumber])
 }
@@ -158,6 +159,7 @@ model AcoProfile {
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
   accounts              AcoAccount[]
+  retailerProfiles      AcoRetailerProfile[]
 
   @@unique([userId, name])
 }
@@ -248,6 +250,21 @@ model AcoRetailerCard {
 
   @@unique([acoAccountId, retailer])
   @@index([acoAccountId])
+}
+
+// Overrides the account's default profile for one retailer; values are read from the profile, never copied.
+model AcoRetailerProfile {
+  id           String     @id @default(cuid())
+  acoAccountId String
+  acoAccount   AcoAccount @relation(fields: [acoAccountId], references: [id], onDelete: Cascade)
+  retailer     String
+  profileId    String
+  profile      AcoProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([acoAccountId, retailer])
+  @@index([profileId])
 }
 
 model PaymentMethod {

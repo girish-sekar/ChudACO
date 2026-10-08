@@ -1,7 +1,7 @@
 import { prisma } from "@chudaco/db";
 import { NextResponse } from "next/server";
 import { getAuthenticatedContext } from "@/lib/api-auth";
-import { linkedAccountsSelect, normalizeProfile, profileAccountData, profileSchema, syncAccountSheet } from "@/lib/aco-library";
+import { normalizeProfile, profileAccountData, profileInclude, profileSchema, syncAccountSheet } from "@/lib/aco-library";
 
 type RouteParams = {
   params: {
@@ -43,7 +43,7 @@ export async function PATCH(request: Request, context: RouteParams) {
   const values = normalizeProfile(parsed.data);
   const profile = await prisma.$transaction(async (tx) => {
     await tx.acoAccount.updateMany({ where: { profileId: existing.id }, data: profileAccountData(values) });
-    return tx.acoProfile.update({ where: { id: existing.id }, data: values, include: linkedAccountsSelect });
+    return tx.acoProfile.update({ where: { id: existing.id }, data: values, include: profileInclude });
   });
 
   const warnings: string[] = [];
@@ -63,12 +63,12 @@ export async function DELETE(_request: Request, context: RouteParams) {
 
   const profile = await prisma.acoProfile.findFirst({
     where: { id: context.params.id, userId: authContext.userId },
-    select: { id: true, _count: { select: { accounts: true } } },
+    select: { id: true, _count: { select: { accounts: true, retailerProfiles: true } } },
   });
   if (!profile) {
     return NextResponse.json({ error: "Profile not found" }, { status: 404 });
   }
-  if (profile._count.accounts > 0) {
+  if (profile._count.accounts > 0 || profile._count.retailerProfiles > 0) {
     return NextResponse.json({ error: "Unlink this profile from all accounts before deleting it." }, { status: 409 });
   }
 

@@ -2,6 +2,7 @@ import { prisma } from "@chudaco/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
+import { accountIdFilter } from "@/lib/admin-export";
 
 const querySchema = z.object({
   format: z.enum(["csv", "json"]).default("json"),
@@ -151,6 +152,7 @@ export async function GET(request: NextRequest) {
     orderBy: { username: "asc" },
     include: {
       acoAccounts: {
+        where: accountIdFilter(request),
         orderBy: { label: "asc" },
         include: {
           cardOnFile: true,

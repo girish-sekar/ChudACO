@@ -115,6 +115,7 @@ export type AcoAccount = {
     cardholderName: string | null;
     updatedAt: string;
   }[];
+  retailerProfiles?: { retailer: string; profileId: string }[];
 };
 
 export type LinkedAccountRef = { id: string; accountNumber: number; label: string };
@@ -136,6 +137,7 @@ export type AcoProfileEntry = {
   billingState: string | null;
   billingZip: string | null;
   accounts: LinkedAccountRef[];
+  retailerProfiles: { retailer: string; acoAccount: LinkedAccountRef }[];
 };
 
 export type AcoImapConfigEntry = {
@@ -266,6 +268,7 @@ export type DropSummaryRetailerRow = {
 export type DropSummaryItemRow = {
   item: string;
   count: number;
+  pricedCount: number;
   volume: string;
 };
 
@@ -306,6 +309,7 @@ export type DropSummaryReconciliation =
       matchedInDatabase: number;
       gapCount: number;
       gapVolume: string;
+      unpricedGapCount: number;
       resolvedGapCount: number;
       unresolvedGapCount: number;
       gaps: DropSummaryGapRow[];

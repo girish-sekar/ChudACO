@@ -6,6 +6,8 @@ import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
 import { resolveExportEmail } from "@/lib/export-email";
 import { getGoogleSheetsConfig } from "@/lib/payment-info";
 import { findSheetCardRow } from "@/lib/sheet-card";
+import { withRetailerProfile } from "@/lib/aco-library";
+import { accountIdFilter } from "@/lib/admin-export";
 
 const querySchema = z.object({
   retailer: z.string().trim().min(1).optional(),
@@ -161,6 +163,7 @@ export async function GET(request: NextRequest) {
 
   const accounts = await prisma.acoAccount.findMany({
     where: {
+      ...accountIdFilter(request),
       OR: [
         ...effectiveRetailerFilters.map((retailer) => ({
           retailer: { equals: retailer, mode: "insensitive" as const },
@@ -179,6 +182,7 @@ export async function GET(request: NextRequest) {
       cardOnFile: true,
       retailerCards: true,
       retailerLogins: true,
+      retailerProfiles: { include: { profile: true } },
     },
   });
 
@@ -200,11 +204,12 @@ export async function GET(request: NextRequest) {
           effectiveRetailerFilters.some((retailer) => retailer.toLowerCase() === login.retailer.toLowerCase()),
         );
       })
-      .map((account) => {
+      .map((loadedAccount) => {
         const selectedRetailer =
           effectiveRetailerFilters.find((retailer) =>
-            account.retailerLogins.some((login) => login.retailer.toLowerCase() === retailer.toLowerCase()),
+            loadedAccount.retailerLogins.some((login) => login.retailer.toLowerCase() === retailer.toLowerCase()),
           ) ?? effectiveRetailerFilters[0];
+        const account = withRetailerProfile(loadedAccount, selectedRetailer);
         const selectedCard =
           account.retailerCards.find((card) => card.retailer.toLowerCase() === selectedRetailer.toLowerCase()) ??
           account.cardOnFile;

@@ -26,6 +26,9 @@ type RetailerOptionsResponse = {
     retailer?: string;
     acoRetailer?: string;
     acoRetailerLogins?: string[];
+    acoAccountId: string;
+    acoBotProfileName: string;
+    acoLabel: string;
   }>;
 };
 
@@ -76,6 +79,8 @@ export default function AdminDashboard() {
   const [status, setStatus] = useState("");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [selectedRetailers, setSelectedRetailers] = useState<string[]>([]);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  const [accountSearch, setAccountSearch] = useState("");
   const [exportingCategory, setExportingCategory] = useState<"hayha" | "stellar" | "valor" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [pricingForm, setPricingForm] = useState<PricingRuleFormState>(defaultPricingRuleForm);
@@ -148,6 +153,32 @@ export default function AdminDashboard() {
     return Array.from(new Set(normalized));
   }, [retailerOptionsData]);
 
+  // cuids are time-ordered, so sorting by id descending lists the newest accounts first.
+  const accountOptions = useMemo(
+    () =>
+      (retailerOptionsData?.data ?? [])
+        .map((row) => ({ id: row.acoAccountId, name: row.acoBotProfileName, label: row.acoLabel }))
+        .sort((a, b) => (a.id < b.id ? 1 : -1)),
+    [retailerOptionsData],
+  );
+  const visibleAccountOptions = useMemo(() => {
+    const query = accountSearch.trim().toLowerCase();
+    return query
+      ? accountOptions.filter((option) => `${option.name} ${option.label}`.toLowerCase().includes(query))
+      : accountOptions;
+  }, [accountOptions, accountSearch]);
+
+  function toggleAccountSelection(accountId: string) {
+    setSelectedAccountIds((current) =>
+      current.includes(accountId) ? current.filter((value) => value !== accountId) : [...current, accountId],
+    );
+  }
+
+  function withAccountFilter(params: URLSearchParams): URLSearchParams {
+    if (selectedAccountIds.length > 0) params.set("accountIds", selectedAccountIds.join(","));
+    return params;
+  }
+
   async function confirmBillingEntry(id: string) {
     setConfirmingId(id);
 
@@ -162,7 +193,7 @@ export default function AdminDashboard() {
   }
 
   async function exportCsv() {
-    const response = await fetch("/api/admin/export?format=csv", { credentials: "include" });
+    const response = await fetch(`/api/admin/export?${withAccountFilter(new URLSearchParams({ format: "csv" }))}`, { credentials: "include" });
     if (!response.ok) {
       return;
     }
@@ -205,6 +236,7 @@ export default function AdminDashboard() {
       if (selectedRetailers.length > 0) {
         params.set("retailers", selectedRetailers.join(","));
       }
+      withAccountFilter(params);
 
       const response = await fetch(`/api/admin/export/accounts-txt?${params.toString()}`, {
         credentials: "include",
@@ -264,6 +296,7 @@ export default function AdminDashboard() {
       if (selectedRetailers.length > 0) {
         params.set("retailers", selectedRetailers.join(","));
       }
+      withAccountFilter(params);
 
       const response = await fetch(
         `/api/admin/export/pokemon-center-json${params.toString() ? `?${params.toString()}` : ""}`,
@@ -303,6 +336,7 @@ export default function AdminDashboard() {
       if (selectedRetailers.length > 0) {
         params.set("retailers", selectedRetailers.join(","));
       }
+      withAccountFilter(params);
 
       const response = await fetch(
         `/api/admin/export/target-json${params.toString() ? `?${params.toString()}` : ""}`,
@@ -345,6 +379,7 @@ export default function AdminDashboard() {
     try {
       const params = new URLSearchParams();
       params.set("retailers", selectedRetailers.join(","));
+      withAccountFilter(params);
 
       const response = await fetch(
         `/api/admin/export/valor-json${params.toString() ? `?${params.toString()}` : ""}`,
@@ -569,6 +604,62 @@ export default function AdminDashboard() {
             ? "No retailer selected: select one or more retailers to enable a Valor export."
             : `Selected retailers: ${selectedRetailers.join(", ")}`}
         </p>
+
+        <p className="mt-4 text-sm text-[#9C9AAE]">Account filter (applies to all exports)</p>
+        <details className="group relative mt-2 max-w-xl">
+          <summary className="flex cursor-pointer list-none items-center justify-between rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]">
+            <span>
+              {selectedAccountIds.length === 0
+                ? "All accounts"
+                : `${selectedAccountIds.length} account${selectedAccountIds.length === 1 ? "" : "s"} selected`}
+            </span>
+            <span className="text-xs text-[#605E72] group-open:rotate-180">▾</span>
+          </summary>
+          <div className="absolute z-20 mt-1 w-full rounded-md border border-[#2C2D3A] bg-[#18181F] p-2 shadow-lg">
+            <div className="flex gap-2">
+              <input
+                type="search"
+                value={accountSearch}
+                onChange={(event) => setAccountSearch(event.target.value)}
+                placeholder="Search by profile name or label"
+                className="min-w-0 flex-1 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]"
+              />
+              <button
+                type="button"
+                onClick={() => setSelectedAccountIds([])}
+                disabled={selectedAccountIds.length === 0}
+                className="rounded-md border border-[#2C2D3A] px-3 text-xs text-[#9C9AAE] hover:text-[#F2F1F6] disabled:opacity-50"
+              >
+                Clear
+              </button>
+            </div>
+            <ul className="mt-2 max-h-72 overflow-y-auto">
+              {visibleAccountOptions.length === 0 ? (
+                <li className="px-2 py-2 text-xs text-[#605E72]">No matching accounts.</li>
+              ) : (
+                visibleAccountOptions.map((option) => (
+                  <li key={option.id}>
+                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-[#F2F1F6] hover:bg-[#22222C]">
+                      <input
+                        type="checkbox"
+                        checked={selectedAccountIds.includes(option.id)}
+                        onChange={() => toggleAccountSelection(option.id)}
+                      />
+                      <span>{option.name}</span>
+                      <span className="text-xs text-[#605E72]">{option.label}</span>
+                    </label>
+                  </li>
+                ))
+              )}
+            </ul>
+            <p className="mt-1 px-2 text-xs text-[#605E72]">Newest accounts are listed first.</p>
+          </div>
+        </details>
+        {selectedAccountIds.length > 0 ? (
+          <p className="mt-2 text-xs text-[#605E72]">
+            Exporting only: {accountOptions.filter((option) => selectedAccountIds.includes(option.id)).map((option) => option.name).join(", ")}
+          </p>
+        ) : null}
         {exportError ? <p className="mt-2 text-xs text-[#FF5D5D]">{exportError}</p> : null}
       </section>
 

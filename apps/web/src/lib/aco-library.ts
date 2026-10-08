@@ -47,6 +47,14 @@ export const linkedAccountsSelect = {
   accounts: { select: { id: true, accountNumber: true, label: true }, orderBy: { accountNumber: "asc" as const } },
 };
 
+export const profileInclude = {
+  ...linkedAccountsSelect,
+  retailerProfiles: {
+    select: { retailer: true, acoAccount: { select: { id: true, accountNumber: true, label: true } } },
+    orderBy: { retailer: "asc" as const },
+  },
+};
+
 export const cardInclude = {
   ...linkedAccountsSelect,
   retailerCards: {
@@ -78,6 +86,17 @@ export function normalizeProfile(input: ProfileValues) {
 }
 
 type ProfileRecord = Omit<ReturnType<typeof normalizeProfile>, "name">;
+
+/** For exports: swaps in the account's retailer-specific profile, if one is linked for this retailer. */
+export function withRetailerProfile<T extends { retailerProfiles: Array<{ retailer: string; profile: ProfileRecord }> }>(
+  account: T,
+  retailer: string | null | undefined,
+): T {
+  const override = retailer
+    ? account.retailerProfiles.find((entry) => entry.retailer.toLowerCase() === retailer.trim().toLowerCase())
+    : undefined;
+  return override ? { ...account, ...profileAccountData(override.profile) } : account;
+}
 
 export function profileAccountData(profile: ProfileRecord | null) {
   return {
@@ -200,6 +219,80 @@ export async function removeCardFromAccount(accountId: string, retailer: string 
   }
 }
 
+/**
+ * Classic edits only write the account's own columns; mirror them into library entries (profile, IMAP inbox,
+ * cards) so modular view sees the account as linked. Returns a warning if card import fails.
+ */
+export async function linkClassicAccountToLibrary(accountId: string, { force = false } = {}): Promise<string | null> {
+  const account = await prisma.acoAccount.findUnique({
+    where: { id: accountId },
+    include: {
+      user: { select: { accountManagementMode: true } },
+      profile: { include: { _count: { select: { accounts: true } } } },
+      imapConfig: { select: { id: true, email: true } },
+      cardOnFile: { select: { id: true } },
+      retailerCards: { where: { cardId: null }, select: { id: true } },
+    },
+  });
+  // Modular saves follow up with an explicit links update, which this must not pre-empt.
+  if (!account || (!force && account.user.accountManagementMode !== "classic")) return null;
+
+  const shipping = profileAccountData(account);
+  const hasShipping = [shipping.shippingName, shipping.shippingPhone, shipping.shippingAddr, shipping.shippingCity, shipping.shippingState, shipping.shippingZip].some(Boolean);
+  if (!hasShipping) {
+    if (account.profileId) await prisma.acoAccount.update({ where: { id: account.id }, data: { profileId: null } });
+  } else if (account.profile && account.profile._count.accounts === 1) {
+    await prisma.acoProfile.update({ where: { id: account.profile.id }, data: shipping });
+  } else if (!account.profile || JSON.stringify(profileAccountData(account.profile)) !== JSON.stringify(shipping)) {
+    // A shared profile is left untouched for the other accounts; this account gets its own.
+    const taken = new Set(
+      (await prisma.acoProfile.findMany({ where: { userId: account.userId }, select: { name: true } })).map((p) => p.name.toLowerCase()),
+    );
+    const base = `#${account.accountNumber} ${account.label}`.slice(0, 110);
+    let name = base;
+    for (let suffix = 2; taken.has(name.toLowerCase()); suffix += 1) name = `${base} (${suffix})`;
+    const profile = await prisma.acoProfile.create({ data: { userId: account.userId, name, ...shipping }, select: { id: true } });
+    await prisma.acoAccount.update({ where: { id: account.id }, data: { profileId: profile.id } });
+  }
+
+  if (!account.email || !account.imapHost) {
+    if (account.imapConfigId) await prisma.acoAccount.update({ where: { id: account.id }, data: { imapConfigId: null } });
+  } else {
+    const config = account.imapConfig && account.imapConfig.email.toLowerCase() === account.email.toLowerCase()
+      ? await prisma.acoImapConfig.findUniqueOrThrow({ where: { id: account.imapConfig.id } })
+      : await prisma.acoImapConfig.findFirst({ where: { userId: account.userId, email: { equals: account.email, mode: "insensitive" } } });
+    const hasOwnPassword = Boolean(account.encryptedPassword && account.encryptionIv);
+    const values = {
+      email: account.email,
+      emailProvider: account.emailProvider,
+      imapHost: account.imapHost,
+      imapPort: account.imapPort,
+      imapSecurity: account.imapSecurity,
+      encryptedPassword: hasOwnPassword ? account.encryptedPassword : config?.encryptedPassword ?? null,
+      encryptionIv: hasOwnPassword ? account.encryptionIv : config?.encryptionIv ?? null,
+    };
+    // Same inbox for every linked account, so classic changes propagate like a modular IMAP edit.
+    const configId = config
+      ? (await prisma.acoImapConfig.update({ where: { id: config.id }, data: values, select: { id: true } })).id
+      : (await prisma.acoImapConfig.create({ data: { userId: account.userId, ...values }, select: { id: true } })).id;
+    await prisma.$transaction([
+      prisma.acoAccount.updateMany({ where: { imapConfigId: configId }, data: imapAccountData(values) }),
+      prisma.acoAccount.update({ where: { id: account.id }, data: { imapConfigId: configId, ...imapAccountData(values) } }),
+    ]);
+  }
+
+  if ((account.cardId === null && account.cardOnFile) || account.retailerCards.length) {
+    try {
+      const result = await importExistingAccountCards([account.userId]);
+      const skipped = result.skipped.filter((reason) => reason.startsWith(`#${account.accountNumber} `));
+      if (skipped.length) return `Card not added to library: ${skipped.join(" ")}`;
+    } catch (error) {
+      return `Card library sync failed: ${errorMessage(error)}`;
+    }
+  }
+  return null;
+}
+
 function uniqueCardLabel(taken: Set<string>, base: string, expMonth: number, expYear: number): string {
   const withExpiry = `${base} (${String(expMonth).padStart(2, "0")}/${String(expYear).slice(-2)})`;
   let label = [base, withExpiry].find((candidate) => !taken.has(candidate.toLowerCase()));
@@ -240,8 +333,8 @@ export async function importExistingAccountCards(userIds?: string[], { dryRun = 
   const libraryCards = await prisma.acoCard.findMany({
     where: { userId: { in: Array.from(new Set(accounts.map((account) => account.userId))) } },
   });
-  const cardKey = (userId: string, cardNumber: string, expMonth: number, expYear: number) =>
-    `${userId}|${cardNumber}|${expMonth}|${expYear}`;
+  const cardKey = (userId: string, cardNumber: string, expMonth: number, expYear: number, cardholderName: string) =>
+    `${userId}|${cardNumber}|${expMonth}|${expYear}|${cardholderName.trim().toLowerCase()}`;
   const cardIdByKey = new Map<string, string>();
   const labelsByUser = new Map<string, Set<string>>();
   const labelsFor = (userId: string) => {
@@ -252,7 +345,7 @@ export async function importExistingAccountCards(userIds?: string[], { dryRun = 
   for (const card of libraryCards) {
     labelsFor(card.userId).add(card.label.toLowerCase());
     const entry = vault.get(card.id);
-    if (entry) cardIdByKey.set(cardKey(card.userId, entry.cardNumber.replace(/\D/g, ""), card.expMonth, card.expYear), card.id);
+    if (entry) cardIdByKey.set(cardKey(card.userId, entry.cardNumber.replace(/\D/g, ""), card.expMonth, card.expYear, card.cardholderName), card.id);
   }
 
   const created: Array<{ cardId: string; entry: CardVaultEntry }> = [];
@@ -284,11 +377,11 @@ export async function importExistingAccountCards(userIds?: string[], { dryRun = 
         continue;
       }
 
-      const key = cardKey(account.userId, cardNumber, expMonth, expYear);
+      const cardholderName = target.masked.cardholderName || row[3] || "";
+      const key = cardKey(account.userId, cardNumber, expMonth, expYear, cardholderName);
       let cardId = cardIdByKey.get(key);
       if (!cardId) {
         const cardBrand = normalizeCardBrand(target.masked.cardBrand) ?? normalizeCardBrand(row[4]) ?? (target.masked.cardBrand || row[4] || "Card");
-        const cardholderName = target.masked.cardholderName || row[3] || "";
         const last4 = cardNumber.slice(-4);
         const data = {
           userId: account.userId,

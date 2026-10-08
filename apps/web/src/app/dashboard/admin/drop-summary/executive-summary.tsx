@@ -8,8 +8,9 @@ function formatDayLabel(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function perUnitLabel(volume: string, count: number): string {
-  const price = count > 0 ? Number(volume) / count : 0;
+function perUnitLabel(volume: string, pricedCount: number): string {
+  if (pricedCount <= 0) return "Price unknown";
+  const price = Number(volume) / pricedCount;
   return `~${toCurrency(price.toFixed(2))} ea`;
 }
 
@@ -102,7 +103,11 @@ export default function ExecutiveSummary({ data }: { data: DropSummaryResponse }
             </p>
           </div>
           <div className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
-            <p className="text-xs text-[#605E72]">Total spent</p>
+            <p className="text-xs text-[#605E72]">
+              {data.reconciliation.configured && data.reconciliation.unpricedGapCount > 0
+                ? "Known-price volume"
+                : "Total spent"}
+            </p>
             <p className="mt-2 font-heading text-2xl font-bold">{toCurrency(data.totals.totalDollarVolume)}</p>
           </div>
           <div className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
@@ -132,7 +137,7 @@ export default function ExecutiveSummary({ data }: { data: DropSummaryResponse }
                   <p className="min-w-0 flex-1 truncate text-sm font-medium">{row.item}</p>
                   <div className="shrink-0 text-right">
                     <p className="font-heading text-sm font-bold text-[#FFCB3C]">x{row.count}</p>
-                    <p className="text-xs text-[#605E72]">{perUnitLabel(row.volume, row.count)}</p>
+                    <p className="text-xs text-[#605E72]">{perUnitLabel(row.volume, row.pricedCount)}</p>
                   </div>
                   <p className="w-20 shrink-0 text-right font-heading text-sm font-bold text-[#4ADE80]">
                     {toCurrency(row.volume)}

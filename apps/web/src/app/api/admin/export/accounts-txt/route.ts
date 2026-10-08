@@ -2,6 +2,7 @@ import { decrypt, getImapEncryptionKeyFromEnv, prisma } from "@chudaco/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
+import { accountIdFilter } from "@/lib/admin-export";
 
 const querySchema = z.object({
   category: z.string().trim().toLowerCase().optional(),
@@ -183,7 +184,7 @@ export async function GET(request: NextRequest) {
         };
 
   const accounts = await prisma.acoAccount.findMany({
-    where,
+    where: { ...where, ...accountIdFilter(request) },
     orderBy: [{ retailer: "asc" }, { label: "asc" }],
     select: {
       retailer: true,

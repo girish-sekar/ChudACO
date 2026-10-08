@@ -25,6 +25,20 @@ function normalizeRetailerKey(retailer: string): string {
   return retailer.trim().toLowerCase();
 }
 
+function normalizeItemName(item: string): string {
+  return item
+    .replace(/^\[([\s\S]+)\]\(https?:\/\/[^)]+\)$/i, "$1")
+    .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(Number(code)))
+    .replace(/&#x([\da-f]+);/gi, (_, code: string) => String.fromCharCode(parseInt(code, 16)))
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+-\s+\$[0-9][0-9,]*(?:\.[0-9]{2})?\s*$/, "")
+    .trim();
+}
+
+function isEliteTrainerBox(item: string): boolean {
+  return /elite trainer box|\betb\b/i.test(item);
+}
+
 function parseItemQuantity(value: string | null | undefined): number {
   const match = value?.match(/\d+/);
   const quantity = match ? Number.parseInt(match[0], 10) : 0;
@@ -70,16 +84,20 @@ export async function GET(request: NextRequest) {
   });
 
   const retailerMap = new Map<string, { label: string; count: number; volume: number }>();
-  const itemMap = new Map<string, { count: number; volume: number }>();
+  const itemMap = new Map<string, { count: number; volume: number; pricedCount: number }>();
   const dayMap = new Map<string, { count: number; volume: number }>();
   const buyerMap = new Map<string, { username: string; count: number; volume: number }>();
 
   let totalVolume = 0;
+  let pricedCheckoutCount = 0;
   const uniqueRetailers = new Set<string>();
 
   for (const checkout of checkouts) {
     const price = Number(checkout.price);
     totalVolume += price;
+    if (price > 0) {
+      pricedCheckoutCount += 1;
+    }
     const retailerKey = normalizeRetailerKey(checkout.retailer);
     uniqueRetailers.add(retailerKey);
 
@@ -89,10 +107,15 @@ export async function GET(request: NextRequest) {
     retailerMap.set(retailerKey, retailerEntry);
 
     const itemQuantity = parseItemQuantity(checkout.qtyLabel);
-    const itemEntry = itemMap.get(checkout.item) ?? { count: 0, volume: 0 };
+    const itemName = normalizeItemName(checkout.item);
+    const itemEntry = itemMap.get(itemName) ?? { count: 0, volume: 0, pricedCount: 0 };
+    const eliteTrainerBox = isEliteTrainerBox(checkout.item);
     itemEntry.count += itemQuantity;
-    itemEntry.volume += price * itemQuantity;
-    itemMap.set(checkout.item, itemEntry);
+    itemEntry.volume += price * (eliteTrainerBox ? 1 : itemQuantity);
+    if (price > 0) {
+      itemEntry.pricedCount += itemQuantity;
+    }
+    itemMap.set(itemName, itemEntry);
 
     const dayKey = toDayKey(checkout.occurredAt);
     const dayEntry = dayMap.get(dayKey) ?? { count: 0, volume: 0 };
@@ -121,6 +144,7 @@ export async function GET(request: NextRequest) {
   // to attribute them to.
   let combinedVolume = totalVolume;
   let combinedCount = checkouts.length;
+  let combinedPricedCount = pricedCheckoutCount;
   const combinedRetailers = new Set(uniqueRetailers);
   const combinedBuyerMap = new Map(buyerMap);
   const combinedDayMap = new Map(dayMap);
@@ -128,9 +152,13 @@ export async function GET(request: NextRequest) {
 
   if (reconciliation.configured) {
     for (const gap of reconciliation.gaps) {
-      const price = Number(gap.price);
+      const parsedPrice = gap.price === "unknown" ? null : Number(gap.price);
+      const price = parsedPrice ?? 0;
       combinedCount += 1;
       combinedVolume += price;
+      if (parsedPrice !== null) {
+        combinedPricedCount += 1;
+      }
       if (gap.retailer) {
         combinedRetailers.add(normalizeRetailerKey(gap.retailer));
       }
@@ -146,10 +174,15 @@ export async function GET(request: NextRequest) {
       combinedBuyerMap.set(buyerKey, buyerEntry);
 
       const itemQuantity = parseItemQuantity(gap.quantity);
-      const itemEntry = combinedItemMap.get(gap.item) ?? { count: 0, volume: 0 };
+      const itemName = normalizeItemName(gap.item);
+      const itemEntry = combinedItemMap.get(itemName) ?? { count: 0, volume: 0, pricedCount: 0 };
+      const eliteTrainerBox = isEliteTrainerBox(gap.item);
       itemEntry.count += itemQuantity;
-      itemEntry.volume += price * itemQuantity;
-      combinedItemMap.set(gap.item, itemEntry);
+      itemEntry.volume += price * (eliteTrainerBox ? 1 : itemQuantity);
+      if (parsedPrice !== null) {
+        itemEntry.pricedCount += itemQuantity;
+      }
+      combinedItemMap.set(itemName, itemEntry);
 
       const dayKey = toDayKey(new Date(gap.occurredAt));
       const dayEntry = combinedDayMap.get(dayKey) ?? { count: 0, volume: 0 };
@@ -164,7 +197,12 @@ export async function GET(request: NextRequest) {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const byItem = Array.from(combinedItemMap.entries())
-    .map(([item, stats]) => ({ item, count: stats.count, volume: stats.volume.toFixed(2) }))
+    .map(([item, stats]) => ({
+      item,
+      count: stats.count,
+      pricedCount: stats.pricedCount,
+      volume: stats.volume.toFixed(2),
+    }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 20);
 
@@ -183,7 +221,7 @@ export async function GET(request: NextRequest) {
     totals: {
       successfulCheckouts: combinedCount,
       totalDollarVolume: combinedVolume.toFixed(2),
-      averageOrderValue: (combinedCount > 0 ? combinedVolume / combinedCount : 0).toFixed(2),
+      averageOrderValue: (combinedPricedCount > 0 ? combinedVolume / combinedPricedCount : 0).toFixed(2),
       uniqueBuyers: combinedBuyerMap.size,
       uniqueRetailers: combinedRetailers.size,
     },
@@ -222,10 +260,10 @@ function isAlreadyRecorded(
     if (!matchedAcoAccountId && matchedUserId && checkout.userId !== matchedUserId) {
       return false;
     }
-    if (checkout.item.trim().toLowerCase() !== message.item.trim().toLowerCase()) {
+    if (normalizeItemName(checkout.item).toLowerCase() !== normalizeItemName(message.item).toLowerCase()) {
       return false;
     }
-    if (Math.abs(Number(checkout.price) - message.price) > PRICE_MATCH_EPSILON) {
+    if (message.price !== null && Math.abs(Number(checkout.price) - message.price) > PRICE_MATCH_EPSILON) {
       return false;
     }
     return Math.abs(checkout.occurredAt.getTime() - message.occurredAt.getTime()) <= MATCH_WINDOW_MS;
@@ -311,7 +349,7 @@ async function reconcileWithDiscord(from: Date, to: Date, checkouts: CheckoutFor
       profile: message.profile,
       item: message.item,
       quantity: message.quantity,
-      price: message.price.toFixed(2),
+      price: message.price?.toFixed(2) ?? "unknown",
       retailer: account?.retailer ?? null,
       userId,
       // Fall back to the raw Discord profile name so every gap has a displayable buyer.
@@ -320,7 +358,7 @@ async function reconcileWithDiscord(from: Date, to: Date, checkouts: CheckoutFor
     });
   }
 
-  const gapVolume = gaps.reduce((sum, gap) => sum + Number(gap.price), 0);
+  const gapVolume = gaps.reduce((sum, gap) => sum + (gap.price === "unknown" ? 0 : Number(gap.price)), 0);
 
   // Discord silently strips embeds/content from messages the bot doesn't own unless the
   // application has the Message Content privileged intent enabled — this is the #1 cause
@@ -336,6 +374,7 @@ async function reconcileWithDiscord(from: Date, to: Date, checkouts: CheckoutFor
     matchedInDatabase,
     gapCount: gaps.length,
     gapVolume: gapVolume.toFixed(2),
+    unpricedGapCount: gaps.filter((gap) => gap.price === "unknown").length,
     resolvedGapCount: gaps.filter((gap) => gap.resolved).length,
     unresolvedGapCount: gaps.filter((gap) => !gap.resolved).length,
     gaps: gaps.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)),
