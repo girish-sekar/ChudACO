@@ -2,7 +2,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
-import { CircleCheck, CircleX, Download, FileUp, LoaderCircle, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
+import { CircleCheck, CircleX, Copy, Download, FileUp, LoaderCircle, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
 import { CARD_BRAND_OPTIONS } from "@/lib/card-brand";
 import { EMAIL_PROVIDER_HOSTS, imapHostForProvider } from "@/lib/email-providers";
 import {
@@ -270,6 +270,7 @@ export function ModularAccountsWorkspace({
   const [linkDraft, setLinkDraft] = useState<LinkDraft>({ profileId: "", cardId: "", imapConfigId: "", retailerCards: {}, retailerProfiles: {} });
   const [importingCards, setImportingCards] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [duplicatingProfileId, setDuplicatingProfileId] = useState<string | null>(null);
   const [testingImapId, setTestingImapId] = useState<string | null>(null);
   const [imapTestResults, setImapTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
   const fileRef = useRef<HTMLInputElement>(null);
@@ -432,6 +433,33 @@ export function ModularAccountsWorkspace({
       setActionError(error instanceof Error ? error.message : "Could not delete.");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function duplicateProfile(profile: AcoProfileEntry) {
+    const taken = new Set(profiles.map((entry) => entry.name.toLowerCase()));
+    const base = `${profile.name} (copy)`;
+    let name = base.slice(0, 120);
+    for (let suffix = 2; taken.has(name.toLowerCase()); suffix += 1) {
+      const ending = ` (copy ${suffix})`;
+      name = `${profile.name.slice(0, 120 - ending.length)}${ending}`;
+    }
+
+    setDuplicatingProfileId(profile.id);
+    setStatus(null);
+    setActionError(null);
+    try {
+      await sendJson(libraryUrl("profiles"), "POST", {
+        name,
+        billingSameAsShipping: profile.billingSameAsShipping,
+        ...Object.fromEntries(profileFields.map((key) => [key, profile[key]])),
+      });
+      await refreshAll();
+      setStatus(`Profile copied as ${name}.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not copy profile.");
+    } finally {
+      setDuplicatingProfileId(null);
     }
   }
 
@@ -812,9 +840,22 @@ export function ModularAccountsWorkspace({
   const iconButtonClass = "rounded border border-[#2C2D3A] p-2 text-[#9C9AAE] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
 
   function libraryActions(kind: LibrarySection, id: string, name: string, linkedCount: number) {
+    const profile = kind === "profiles" ? profiles.find((entry) => entry.id === id) : undefined;
     return (
       <div className="flex gap-2">
         <button type="button" aria-label={`Edit ${name}`} onClick={() => openEditor(kind, id)} className={iconButtonClass}><Pencil className="h-4 w-4" /></button>
+        {profile ? (
+          <button
+            type="button"
+            aria-label={`Copy ${name}`}
+            title="Copy profile"
+            disabled={duplicatingProfileId === id}
+            onClick={() => void duplicateProfile(profile)}
+            className={iconButtonClass}
+          >
+            {duplicatingProfileId === id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+          </button>
+        ) : null}
         <button
           type="button"
           aria-label={`Delete ${name}`}
