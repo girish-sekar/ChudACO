@@ -24,6 +24,7 @@ type DiscordMember = {
 
 type RoleToken = {
   discordId?: string;
+  discordUsername?: string;
   hasRequiredRole?: boolean;
   roleCheckedAt?: number;
 };
@@ -212,6 +213,35 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return true;
       }
 
+      const accessState = await prisma.user.findUnique({
+        where: { discordId },
+        select: { id: true, discordAccessStatus: true },
+      });
+      if (!accessState) return false;
+      if (accessState.discordAccessStatus === "cleaning" || accessState.discordAccessStatus === "cleanup_failed") {
+        return "/access-denied";
+      }
+
+      if (accessState.discordAccessStatus === "grace" || accessState.discordAccessStatus === "cleaned") {
+        const restored = await prisma.user.updateMany({
+          where: { id: accessState.id, discordAccessStatus: accessState.discordAccessStatus },
+          data: {
+            discordAccessStatus: "active",
+            discordAccessRevokedAt: null,
+            discordCleanupAfter: null,
+            discordCleanupStartedAt: null,
+            discordCleanupLastError: null,
+          },
+        });
+        if (restored.count === 0) {
+          const latest = await prisma.user.findUnique({
+            where: { id: accessState.id },
+            select: { discordAccessStatus: true },
+          });
+          if (latest?.discordAccessStatus !== "active") return "/access-denied";
+        }
+      }
+
       return true;
     },
     async jwt({ token, profile, account, trigger }) {
@@ -222,6 +252,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         if (discordProfile?.id) {
           roleToken.discordId = discordProfile.id;
+        }
+
+        const discordUsername = discordProfile?.global_name?.trim() || discordProfile?.username?.trim();
+        if (discordUsername) {
+          roleToken.discordUsername = discordUsername;
         }
 
         const discordId = typeof roleToken.discordId === "string" ? roleToken.discordId : undefined;
@@ -264,6 +299,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         session.user.discordId = typeof token.discordId === "string" ? token.discordId : undefined;
+        session.user.discordUsername = typeof token.discordUsername === "string" ? token.discordUsername : undefined;
         session.user.hasRequiredRole = Boolean(token.hasRequiredRole);
       }
 

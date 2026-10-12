@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { Download } from "lucide-react";
 import useSWR from "swr";
 import {
   fetchJson,
@@ -81,7 +82,7 @@ export default function AdminDashboard() {
   const [selectedRetailers, setSelectedRetailers] = useState<string[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [accountSearch, setAccountSearch] = useState("");
-  const [exportingCategory, setExportingCategory] = useState<"hayha" | "stellar" | "valor" | null>(null);
+  const [exportingCategory, setExportingCategory] = useState<"hayha" | "stellar" | "valor" | "valor-imap" | "shikari-accounts" | "shikari-imap" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [pricingForm, setPricingForm] = useState<PricingRuleFormState>(defaultPricingRuleForm);
   const [pricingStatus, setPricingStatus] = useState<string | null>(null);
@@ -217,8 +218,8 @@ export default function AdminDashboard() {
     );
   }
 
-  async function exportAccountsTxt(category: "hayha" | "stellar" | "valor") {
-    setExportingCategory(category);
+  async function exportAccountsTxt(category: "hayha" | "stellar" | "valor", mode?: "default" | "imap") {
+    setExportingCategory(category === "valor" && mode === "imap" ? "valor-imap" : category);
     setExportError(null);
 
     if (category === "valor" && selectedRetailers.length === 0) {
@@ -275,14 +276,52 @@ export default function AdminDashboard() {
       }
 
       await downloadFile(
-        category === "hayha"
+        category === "valor" && mode === "imap"
+          ? "valor-imap.txt"
+          : category === "hayha"
           ? "hayha-accounts.txt"
           : category === "stellar"
             ? "stellar-accounts.txt"
             : "valor-accounts.txt",
+        mode,
       );
     } catch (error) {
       setExportError(error instanceof Error ? error.message : "Export failed");
+    } finally {
+      setExportingCategory(null);
+    }
+  }
+
+  async function exportShikari(mode: "accounts" | "imap") {
+    setExportingCategory(mode === "imap" ? "shikari-imap" : "shikari-accounts");
+    setExportError(null);
+
+    try {
+      const params = withAccountFilter(new URLSearchParams({ mode }));
+      if (selectedRetailers.length > 0) {
+        params.set("retailers", selectedRetailers.join(","));
+      }
+      const response = await fetch(`/api/admin/export/shikari?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "Shikari export failed.");
+      }
+      const blob = await response.blob();
+      if (blob.size === 0 || (mode === "imap" && (await blob.text()).trim() === "imap_server,port,username,password")) {
+        throw new Error(`No enabled retailer accounts with complete ${mode === "imap" ? "IMAP" : "retailer login"} credentials matched the Shikari export filters.`);
+      }
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = mode === "imap" ? "shikari-imap.csv" : "shikari-accounts.txt";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Shikari export failed.");
     } finally {
       setExportingCategory(null);
     }
@@ -543,11 +582,19 @@ export default function AdminDashboard() {
           </button>
           <button
             type="button"
-            onClick={() => void exportAccountsTxt("valor")}
+            onClick={() => void exportAccountsTxt("valor", "default")}
             disabled={exportingCategory !== null || selectedRetailers.length === 0}
             className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
           >
-            {exportingCategory === "valor" ? "Exporting Valor..." : "Export Valor (.txt)"}
+            {exportingCategory === "valor" ? "Exporting Valor accounts..." : "Valor Accounts (.txt)"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void exportAccountsTxt("valor", "imap")}
+            disabled={exportingCategory !== null || selectedRetailers.length === 0}
+            className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
+          >
+            {exportingCategory === "valor-imap" ? "Exporting Valor IMAP..." : "Valor IMAP (.txt)"}
           </button>
           <button
             type="button"
@@ -571,11 +618,31 @@ export default function AdminDashboard() {
           >
             Export Valor Accounts (.json)
           </button>
+          <button
+            type="button"
+            onClick={() => void exportShikari("accounts")}
+            disabled={exportingCategory !== null}
+            title={`Download Shikari retailer logins for ${selectedRetailers.join(", ") || "Target"}`}
+            className="inline-flex items-center gap-2 rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6] disabled:opacity-60"
+          >
+            <Download size={16} aria-hidden="true" className="shrink-0" />
+            {exportingCategory === "shikari-accounts" ? "Exporting Shikari..." : "Shikari Accounts (.txt)"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void exportShikari("imap")}
+            disabled={exportingCategory !== null}
+            title={`Download Shikari IMAP credentials for ${selectedRetailers.join(", ") || "Target"}`}
+            className="inline-flex items-center gap-2 rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6] disabled:opacity-60"
+          >
+            <Download size={16} aria-hidden="true" className="shrink-0" />
+            {exportingCategory === "shikari-imap" ? "Exporting Shikari..." : "Shikari IMAP (.csv)"}
+          </button>
         </div>
       </header>
 
       <section className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
-        <p className="text-sm text-[#9C9AAE]">TXT export retailer filter</p>
+        <p className="text-sm text-[#9C9AAE]">Retailer filter (TXT and Shikari exports)</p>
         <div className="mt-3 flex flex-wrap gap-2">
           {retailerOptions.length === 0 ? (
             <p className="text-xs text-[#605E72]">No retailers found yet.</p>

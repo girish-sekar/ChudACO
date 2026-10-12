@@ -19,6 +19,13 @@ model User {
   accountManagementMode String       @default("classic")
   termsVersion        String?
   termsAcceptedAt     DateTime?
+  discordAccessStatus DiscordAccessStatus @default(active)
+  discordAccessRevokedAt DateTime?
+  discordCleanupAfter DateTime?
+  discordCleanupStartedAt DateTime?
+  discordCleanupAttempts Int @default(0)
+  discordCleanupLastError String?
+  discordCleanupCompletedAt DateTime?
   createdAt           DateTime       @default(now())
   checkouts           Checkout[]
   billingEntries      BillingEntry[]
@@ -26,6 +33,16 @@ model User {
   acoProfiles         AcoProfile[]
   acoImapConfigs      AcoImapConfig[]
   acoCards            AcoCard[]
+
+  @@index([discordAccessStatus, discordCleanupAfter])
+}
+
+enum DiscordAccessStatus {
+  active
+  grace
+  cleaning
+  cleanup_failed
+  cleaned
 }
 
 model Checkout {

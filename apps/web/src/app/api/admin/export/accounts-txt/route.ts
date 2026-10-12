@@ -196,6 +196,13 @@ export async function GET(request: NextRequest) {
       encryptionIv: true,
       encryptedLoginPassword: true,
       loginPasswordIv: true,
+      imapConfig: {
+        select: {
+          email: true,
+          encryptedPassword: true,
+          encryptionIv: true,
+        },
+      },
       retailerLogins: {
         select: {
           retailer: true,
@@ -230,6 +237,12 @@ export async function GET(request: NextRequest) {
           }
 
           if (exportMode === "imap") {
+            if (category === "valor") {
+              return (
+                effectiveRetailerFilters.length === 0 ||
+                effectiveRetailerFilters.some((r) => r.toLowerCase() === entry.retailer.toLowerCase())
+              );
+            }
             return (
               isCostcoRetailer(entry.retailer) &&
               (effectiveRetailerFilters.length === 0 ||
@@ -270,11 +283,21 @@ export async function GET(request: NextRequest) {
             entry.encryptedLoginPassword,
             entry.loginPasswordIv,
           );
-          if (!entry.loginEmail) {
-            return null;
-          }
 
           if (exportMode === "imap") {
+            if (category === "valor") {
+              const imapConfig = account.imapConfig;
+              const imapEmail = imapConfig?.email ?? account.email;
+              const imapPassword = parseEncryptedValue(
+                imapConfig?.encryptedPassword ?? account.encryptedPassword,
+                imapConfig?.encryptionIv ?? account.encryptionIv,
+              );
+              if (!imapEmail || !imapPassword || /[:\r\n]/.test(imapEmail) || /[\r\n]/.test(imapPassword)) {
+                return null;
+              }
+              return `${imapEmail}:${imapPassword}`;
+            }
+
             const imapPassword = parseEncryptedValue(account.encryptedPassword, account.encryptionIv);
             if (!imapPassword || !account.email || !account.imapHost) {
               return null;
@@ -283,8 +306,19 @@ export async function GET(request: NextRequest) {
             return `${account.imapHost};${account.email};${imapPassword}`;
           }
 
+          if (!entry.loginEmail) {
+            return null;
+          }
+
           if (category === "stellar" && isCostcoRetailer(entry.retailer)) {
             return `${entry.loginEmail};${retailLoginPassword ?? ""}`;
+          }
+
+          if (category === "valor") {
+            if (!retailLoginPassword || /[:\r\n]/.test(entry.loginEmail) || /[\r\n]/.test(retailLoginPassword)) {
+              return null;
+            }
+            return `${entry.loginEmail}:${retailLoginPassword}`;
           }
 
           const imapPassword = parseEncryptedValue(account.encryptedPassword, account.encryptionIv);
@@ -299,9 +333,12 @@ export async function GET(request: NextRequest) {
     })
     .filter((line): line is string => line.length > 0);
 
+  const outputLines = category === "valor" && exportMode === "imap" ? Array.from(new Set(lines)) : lines;
   const filename =
     exportMode === "imap"
-      ? "stellar-costco-imap.txt"
+      ? category === "valor"
+        ? "valor-imap.txt"
+        : "stellar-costco-imap.txt"
       : category === "hayha"
         ? "hayha-accounts.txt"
         : category === "stellar"
@@ -310,7 +347,7 @@ export async function GET(request: NextRequest) {
             ? "valor-accounts.txt"
             : "admin-account-export.txt";
 
-  return new NextResponse(lines.join("\n"), {
+  return new NextResponse(outputLines.join("\n"), {
     status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",

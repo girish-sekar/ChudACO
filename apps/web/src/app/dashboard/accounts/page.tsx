@@ -9,7 +9,6 @@ import {
   formatDate,
   type AcoAccount,
   type CardOnFile,
-  type Profile,
   type Retailer,
 } from "@/lib/dashboard";
 import { CARD_BRAND_OPTIONS, normalizeCardBrand } from "@/lib/card-brand";
@@ -19,9 +18,11 @@ import { ModularAccountsWorkspace } from "./modular-workspace";
 type AccountsResponse = {
   data: AcoAccount[];
   meta?: {
-    maxAccountsPerUser: number;
     currentAccounts: number;
-    remainingAccounts: number;
+    pokemonCenterProfiles: number;
+    maxProfiles: number;
+    externalProfiles: number;
+    managedProfileLimit: number;
   };
 };
 
@@ -165,7 +166,6 @@ function splitAddressLines(value: string | null | undefined) {
 export default function AccountsPage() {
   const { data, error, mutate } = useSWR<AccountsResponse>("/api/aco-accounts", fetchJson);
   const { data: retailersData } = useSWR<{ data: Retailer[] }>("/api/retailers", fetchJson);
-  const { data: profileData, mutate: mutateProfile } = useSWR<{ data: Profile }>("/api/profile", fetchJson);
   const [statusBanner, setStatusBanner] = useState<StatusBanner | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -175,7 +175,6 @@ export default function AccountsPage() {
   const [formState, setFormState] = useState<FormState>(defaultFormState);
   const [showSuccessPulse, setShowSuccessPulse] = useState(false);
   const [togglingLoginId, setTogglingLoginId] = useState<string | null>(null);
-  const [modeSaving, setModeSaving] = useState(false);
 
   const retailerOptions = useMemo(() => {
     if (retailersData?.data && retailersData.data.length > 0) {
@@ -186,32 +185,13 @@ export default function AccountsPage() {
 
   const [cardByAccount, setCardByAccount] = useState<Record<string, CardOnFile | null>>({});
 
-  const maxAccountsPerUser = data?.meta?.maxAccountsPerUser ?? 5;
   const currentAccounts = data?.meta?.currentAccounts ?? data?.data?.length ?? 0;
-  const isCreateLimitReached = editingId === null && currentAccounts >= maxAccountsPerUser;
-  const accountManagementMode = profileData?.data.accountManagementMode ?? "classic";
-
-  async function changeAccountManagementMode(mode: "classic" | "modular") {
-    if (mode === accountManagementMode || modeSaving) return;
-    setModeSaving(true);
-    try {
-      const response = await fetch("/api/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountManagementMode: mode }),
-      });
-      if (!response.ok) throw new Error("Could not save your account management preference.");
-      const result = (await response.json()) as { data: Profile };
-      await mutateProfile(result, false);
-    } catch (error) {
-      setStatusBanner({
-        message: error instanceof Error ? error.message : "Could not save your account management preference.",
-        tone: "error",
-      });
-    } finally {
-      setModeSaving(false);
-    }
-  }
+  const pokemonCenterProfiles = data?.meta?.pokemonCenterProfiles ?? 0;
+  const pokemonCenterBaseline = data?.meta?.externalProfiles ?? 50;
+  const totalPokemonCenterProfiles = pokemonCenterProfiles + pokemonCenterBaseline;
+  const maxPokemonCenterProfiles = data?.meta?.maxProfiles ?? 250;
+  const managedPokemonCenterLimit = data?.meta?.managedProfileLimit ?? 200;
+  const accountManagementMode = "modular";
 
   useEffect(() => {
     if (!statusBanner?.pulse) {
@@ -254,14 +234,6 @@ export default function AccountsPage() {
   }
 
   function startCreate() {
-    if (currentAccounts >= maxAccountsPerUser) {
-      setStatusBanner({
-        message: `Account limit reached. You can create up to ${maxAccountsPerUser} accounts.`,
-        tone: "error",
-      });
-      return;
-    }
-
     setStatusBanner(null);
     setEditingId(null);
     setFormState(defaultFormState);
@@ -468,14 +440,6 @@ export default function AccountsPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (!editingId && currentAccounts >= maxAccountsPerUser) {
-      setStatusBanner({
-        message: `Account limit reached. You can create up to ${maxAccountsPerUser} accounts.`,
-        tone: "error",
-      });
-      return;
-    }
 
     setIsSubmitting(true);
 
@@ -797,11 +761,13 @@ export default function AccountsPage() {
           setCardByAccount({});
           await mutate();
         }}
-        modeSaving={modeSaving}
-        onModeChange={(mode) => void changeAccountManagementMode(mode)}
         loading={!data && !error}
         loadError={Boolean(error)}
         retailers={retailerOptions}
+        totalPokemonCenterProfiles={totalPokemonCenterProfiles}
+        maxPokemonCenterProfiles={maxPokemonCenterProfiles}
+        managedPokemonCenterLimit={managedPokemonCenterLimit}
+        managedPokemonCenterProfiles={pokemonCenterProfiles}
       />
     );
   }
@@ -815,25 +781,16 @@ export default function AccountsPage() {
             Manage IMAP inboxes, per-account shipping, and payment relay settings.
           </p>
           <p className="mt-1 text-xs text-[#72708A]">
-            {currentAccounts}/{maxAccountsPerUser} accounts used.
+            {currentAccounts} accounts configured.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-md border border-[#2C2D3A] p-1" aria-label="Account management mode">
-            <button type="button" disabled={modeSaving} aria-pressed="true" className="rounded bg-[#2F5BFF] px-3 py-1.5 text-xs font-medium text-white">Classic</button>
-            <button type="button" disabled={modeSaving} onClick={() => void changeAccountManagementMode("modular")} className="rounded px-3 py-1.5 text-xs text-[#9C9AAE] hover:text-[#F2F1F6]">Modular</button>
-          </div>
           <button
             type="button"
             onClick={startCreate}
-            disabled={isCreateLimitReached}
             className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isCreateLimitReached
-              ? `Limit reached (${maxAccountsPerUser})`
-              : showForm && editingId === null
-                ? "Close"
-                : "Add account"}
+            {showForm && editingId === null ? "Close" : "Add account"}
           </button>
         </div>
       </header>

@@ -37,7 +37,12 @@ export async function GET() {
     return NextResponse.json({ error: "Profile not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ data: profile });
+  return NextResponse.json({
+    data: {
+      ...profile,
+      discordUsername: authContext.discordUsername?.trim() || profile.username,
+    },
+  });
 }
 
 export async function PATCH(request: Request) {

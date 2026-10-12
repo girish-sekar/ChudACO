@@ -41,7 +41,12 @@ function knownEtbUnitPrice(item: string): number | null {
 }
 
 type DiscordEmbedField = { name?: string; value?: string };
-type DiscordEmbed = { title?: string; fields?: DiscordEmbedField[] };
+type DiscordEmbed = {
+  title?: string;
+  fields?: DiscordEmbedField[];
+  thumbnail?: { url?: string };
+  image?: { url?: string };
+};
 type DiscordMessage = { id: string; timestamp: string; embeds?: DiscordEmbed[] };
 
 export type ParsedSuccessMessage = {
@@ -51,6 +56,7 @@ export type ParsedSuccessMessage = {
   item: string;
   quantity: string;
   price: number | null;
+  imageUrl: string | null;
 };
 
 function fieldsMap(embed: DiscordEmbed): Map<string, string> {
@@ -61,7 +67,7 @@ function fieldsMap(embed: DiscordEmbed): Map<string, string> {
   return map;
 }
 
-function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage | null {
+export function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage | null {
   const embed = message.embeds?.find((candidate) => /successful checkout/i.test(candidate.title ?? ""));
   if (!embed) {
     return null;
@@ -70,6 +76,8 @@ function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage | null
   const fields = fieldsMap(embed);
   const profile = fields.get("profile name");
   const item = fields.get("item");
+  const rawImageUrl = embed.thumbnail?.url ?? embed.image?.url ?? null;
+  const imageUrl = rawImageUrl && /^https?:\/\//i.test(rawImageUrl) ? rawImageUrl : null;
   const priceRaw = fields.get("price");
   const parsedPrice = priceRaw ? parsePriceToNumber(priceRaw) : null;
   const quantity = fields.get("quantity") ?? "0";
@@ -89,6 +97,7 @@ function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage | null
     item,
     quantity,
     price,
+    imageUrl,
   };
 }
 

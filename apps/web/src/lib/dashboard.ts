@@ -12,6 +12,7 @@ export type Checkout = {
   orderNumber: string | null;
   ticketCode: string;
   occurredAt: string;
+  imageUrl?: string | null;
 };
 
 export type BillingStatus = "due" | "paid" | "overdue";
@@ -267,6 +268,7 @@ export type DropSummaryRetailerRow = {
 
 export type DropSummaryItemRow = {
   item: string;
+  imageUrl: string | null;
   count: number;
   pricedCount: number;
   volume: string;
@@ -290,6 +292,7 @@ export type DropSummaryGapRow = {
   occurredAt: string;
   profile: string;
   item: string;
+  imageUrl: string | null;
   quantity: string;
   price: string;
   retailer: string | null;

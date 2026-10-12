@@ -6,6 +6,19 @@ import { encryptImapPassword } from "@/lib/crypto";
 import { deleteGoogleSheetRowsForAccount } from "@/lib/google-sheets-relay";
 import { upsertGoogleSheetShippingFields } from "@/lib/google-sheets-relay";
 import { linkClassicAccountToLibrary } from "@/lib/aco-library";
+import {
+  countPokemonCenterProfiles,
+  getPokemonCenterCapacity,
+  isPokemonCenterRetailer,
+  lockPokemonCenterCapacity,
+} from "@/lib/pokemon-center-capacity";
+
+class PokemonCenterCapacityError extends Error {
+  constructor(public readonly capacity: number) {
+    super(`Maximum of ${capacity} Pokemon Center profiles reached`);
+    this.name = "PokemonCenterCapacityError";
+  }
+}
 
 const updateAcoAccountSchema = z.object({
   label: z.string().trim().min(1),
@@ -139,7 +152,7 @@ async function handleUpdate(request: Request, context: RouteParams) {
 
   const existing = await prisma.acoAccount.findFirst({
     where: { id: context.params.id, userId: authContext.userId },
-    select: { id: true },
+    select: { id: true, retailerLogins: { select: { retailer: true } } },
   });
 
   if (!existing) {
@@ -248,25 +261,38 @@ async function handleUpdate(request: Request, context: RouteParams) {
     });
 
     const primary = mergedRetailerLogins[0];
+    const requestedPokemonCenterProfiles = mergedRetailerLogins.filter((login) =>
+      isPokemonCenterRetailer(login.retailer),
+    ).length;
     nextData.retailer = primary.retailer;
     nextData.loginEmail = primary.loginEmail;
     nextData.encryptedLoginPassword = primary.encryptedLoginPassword;
     nextData.loginPasswordIv = primary.loginPasswordIv;
 
-    account = await prisma.$transaction(async (tx) => {
-      await tx.acoRetailerLogin.deleteMany({ where: { acoAccountId: context.params.id } });
-      await tx.acoRetailerLogin.createMany({
-        data: mergedRetailerLogins.map((entry) => ({
-          acoAccountId: context.params.id,
-          retailer: entry.retailer,
-          loginEmail: entry.loginEmail,
-          encryptedLoginPassword: entry.encryptedLoginPassword,
-          loginPasswordIv: entry.loginPasswordIv,
-          enabled: entry.enabled,
-        })),
-      });
+    try {
+      account = await prisma.$transaction(async (tx) => {
+        if (requestedPokemonCenterProfiles > 0) {
+          await lockPokemonCenterCapacity(tx);
+          const currentProfiles = await countPokemonCenterProfiles(tx, context.params.id);
+          const { managedProfileLimit } = getPokemonCenterCapacity();
+          if (currentProfiles + requestedPokemonCenterProfiles > managedProfileLimit) {
+            throw new PokemonCenterCapacityError(managedProfileLimit);
+          }
+        }
 
-      return tx.acoAccount.update({
+        await tx.acoRetailerLogin.deleteMany({ where: { acoAccountId: context.params.id } });
+        await tx.acoRetailerLogin.createMany({
+          data: mergedRetailerLogins.map((entry) => ({
+            acoAccountId: context.params.id,
+            retailer: entry.retailer,
+            loginEmail: entry.loginEmail,
+            encryptedLoginPassword: entry.encryptedLoginPassword,
+            loginPasswordIv: entry.loginPasswordIv,
+            enabled: entry.enabled,
+          })),
+        });
+
+        return tx.acoAccount.update({
         where: { id: context.params.id },
         data: nextData,
         select: {
@@ -308,13 +334,39 @@ async function handleUpdate(request: Request, context: RouteParams) {
             orderBy: { retailer: "asc" },
           },
         },
+        });
       });
-    });
+    } catch (error) {
+      if (error instanceof PokemonCenterCapacityError) {
+        return NextResponse.json(
+          {
+            error: "Pokemon Center profile capacity reached",
+            detail: `The platform can support ${error.capacity} Pokemon Center profiles managed through this website.`,
+          },
+          { status: 409 },
+        );
+      }
+      throw error;
+    }
   } else {
-    account = await prisma.acoAccount.update({
-      where: { id: context.params.id },
-      data: nextData,
-      select: {
+    const addsLegacyPokemonCenterProfile =
+      existing.retailerLogins.length === 0 && isPokemonCenterRetailer(parsed.data.retailer);
+
+    try {
+      account = await prisma.$transaction(async (tx) => {
+        if (addsLegacyPokemonCenterProfile) {
+          await lockPokemonCenterCapacity(tx);
+          const currentProfiles = await countPokemonCenterProfiles(tx, context.params.id);
+          const { managedProfileLimit } = getPokemonCenterCapacity();
+          if (currentProfiles + 1 > managedProfileLimit) {
+            throw new PokemonCenterCapacityError(managedProfileLimit);
+          }
+        }
+
+        return tx.acoAccount.update({
+          where: { id: context.params.id },
+          data: nextData,
+          select: {
         id: true,
         userId: true,
         accountNumber: true,
@@ -353,8 +405,21 @@ async function handleUpdate(request: Request, context: RouteParams) {
           },
           orderBy: { retailer: "asc" },
         },
-      },
-    });
+          },
+        });
+      });
+    } catch (error) {
+      if (error instanceof PokemonCenterCapacityError) {
+        return NextResponse.json(
+          {
+            error: "Pokemon Center profile capacity reached",
+            detail: `The platform can support ${error.capacity} Pokemon Center profiles managed through this website.`,
+          },
+          { status: 409 },
+        );
+      }
+      throw error;
+    }
   }
 
   let syncWarning: string | null = null;

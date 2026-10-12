@@ -4,6 +4,7 @@ import { CURRENT_TERMS_VERSION } from "@/lib/terms";
 
 export type AuthenticatedContext = {
   discordId: string;
+  discordUsername?: string | null;
   userId: string;
 };
 
@@ -15,17 +16,23 @@ export async function getAuthenticatedContext(): Promise<AuthenticatedContext | 
     return null;
   }
 
+  const isAdmin = getAdminDiscordIds().has(discordId);
   const user = await prisma.user.findUnique({
     where: { discordId },
-    select: { id: true, termsVersion: true },
+    select: { id: true, termsVersion: true, discordAccessStatus: true },
   });
 
-  if (!user || user.termsVersion !== CURRENT_TERMS_VERSION) {
+  if (
+    !user ||
+    user.termsVersion !== CURRENT_TERMS_VERSION ||
+    (!isAdmin && user.discordAccessStatus !== "active")
+  ) {
     return null;
   }
 
   return {
     discordId,
+    discordUsername: session?.user?.discordUsername ?? session?.user?.name ?? null,
     userId: user.id,
   };
 }

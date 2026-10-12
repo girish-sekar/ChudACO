@@ -5,6 +5,12 @@ import { getAuthenticatedContext } from "@/lib/api-auth";
 import { encryptImapPassword } from "@/lib/crypto";
 import { upsertGoogleSheetShippingFields } from "@/lib/google-sheets-relay";
 import { linkClassicAccountToLibrary } from "@/lib/aco-library";
+import {
+  countPokemonCenterProfiles,
+  getPokemonCenterCapacity,
+  isPokemonCenterRetailer,
+  lockPokemonCenterCapacity,
+} from "@/lib/pokemon-center-capacity";
 
 const createAcoAccountSchema = z.object({
   label: z.string().trim().min(1),
@@ -97,43 +103,11 @@ type SanitizedAcoAccount = {
   retailerProfiles?: { retailer: string; profileId: string }[];
 };
 
-const DEFAULT_MAX_ACCOUNTS_PER_USER = 5;
-const PREMIUM_MAX_ACCOUNTS_PER_USER = 10;
-
-class MaxAccountsPerUserError extends Error {
-  constructor(public readonly maxAccountsPerUser: number) {
-    super(`Maximum of ${maxAccountsPerUser} accounts per user reached`);
-    this.name = "MaxAccountsPerUserError";
+class PokemonCenterCapacityError extends Error {
+  constructor(public readonly capacity: number) {
+    super(`Maximum of ${capacity} Pokemon Center profiles reached`);
+    this.name = "PokemonCenterCapacityError";
   }
-}
-
-function getPremiumUserIds(): Set<string> {
-  const raw = process.env.PREMIUM_USER_IDS?.trim() ?? "";
-  return new Set(
-    raw
-      .split(",")
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0),
-  );
-}
-
-function getMaxAccountsPerUser(discordId?: string): number {
-  const raw = process.env.MAX_ACCOUNTS_PER_USER?.trim();
-  const defaultLimit = raw ? Number.parseInt(raw, 10) : DEFAULT_MAX_ACCOUNTS_PER_USER;
-
-  if (!Number.isFinite(defaultLimit) || defaultLimit < 1) {
-    console.warn("Invalid MAX_ACCOUNTS_PER_USER value, falling back to default", {
-      value: raw,
-      fallback: DEFAULT_MAX_ACCOUNTS_PER_USER,
-    });
-    return DEFAULT_MAX_ACCOUNTS_PER_USER;
-  }
-
-  if (discordId && getPremiumUserIds().has(discordId)) {
-    return Math.max(defaultLimit, PREMIUM_MAX_ACCOUNTS_PER_USER);
-  }
-
-  return defaultLimit;
 }
 
 function sanitizeAcoAccount(account: {
@@ -244,8 +218,6 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const maxAccountsPerUser = getMaxAccountsPerUser(authContext.discordId);
-
   const accounts = await prisma.acoAccount.findMany({
     where: { userId: authContext.userId },
     select: {
@@ -310,12 +282,15 @@ export async function GET() {
     orderBy: { label: "asc" },
   });
 
+  const pokemonCenterProfiles = await countPokemonCenterProfiles(prisma);
+  const pokemonCenterCapacity = getPokemonCenterCapacity();
+
   return NextResponse.json({
     data: accounts.map((account) => sanitizeAcoAccount(account)),
     meta: {
-      maxAccountsPerUser,
       currentAccounts: accounts.length,
-      remainingAccounts: Math.max(0, maxAccountsPerUser - accounts.length),
+      pokemonCenterProfiles,
+      ...pokemonCenterCapacity,
     },
   });
 }
@@ -325,8 +300,6 @@ export async function POST(request: Request) {
   if (!authContext) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
-  const maxAccountsPerUser = getMaxAccountsPerUser(authContext.discordId);
 
   const body = await request.json().catch(() => null);
   const parsed = createAcoAccountSchema.safeParse(body);
@@ -367,16 +340,20 @@ export async function POST(request: Request) {
 
   const primaryRetailerLogin = encryptedRetailerLogins[0];
   const billingSameAsShipping = parsed.data.billingSameAsShipping ?? true;
+  const requestedPokemonCenterProfiles = encryptedRetailerLogins.filter((login) =>
+    isPokemonCenterRetailer(login.retailer),
+  ).length;
 
   let account;
   try {
     account = await prisma.$transaction(async (tx) => {
-      const accountCount = await tx.acoAccount.count({
-        where: { userId: authContext.userId },
-      });
-
-      if (accountCount >= maxAccountsPerUser) {
-        throw new MaxAccountsPerUserError(maxAccountsPerUser);
+      if (requestedPokemonCenterProfiles > 0) {
+        await lockPokemonCenterCapacity(tx);
+        const currentProfiles = await countPokemonCenterProfiles(tx);
+        const { managedProfileLimit } = getPokemonCenterCapacity();
+        if (currentProfiles + requestedPokemonCenterProfiles > managedProfileLimit) {
+          throw new PokemonCenterCapacityError(managedProfileLimit);
+        }
       }
 
       const userAfterIncrement = await tx.user.update({
@@ -472,11 +449,11 @@ export async function POST(request: Request) {
       });
     });
   } catch (error) {
-    if (error instanceof MaxAccountsPerUserError) {
+    if (error instanceof PokemonCenterCapacityError) {
       return NextResponse.json(
         {
-          error: "Account limit reached",
-          detail: `You can create up to ${error.maxAccountsPerUser} accounts.`,
+          error: "Pokemon Center profile capacity reached",
+          detail: `The platform can support ${error.capacity} Pokemon Center profiles managed through this website.`,
         },
         { status: 409 },
       );

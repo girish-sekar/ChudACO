@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChudACO | My Checkout Recap</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f5f3f0;
+      --muted: #a8a9b4;
+      --quiet: #747887;
+      --line: rgba(255,255,255,.12);
+      --panel: rgba(20,22,30,.92);
+      --panel-soft: rgba(33,35,45,.82);
+      --red: #f04438;
+      --gold: #f3bd48;
+      --mint: #65dcb1;
+      --rose: #ee716c;
+      --blue: #a9b5ff;
+      --round: 15px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #101116;
+      color: var(--ink);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 30px 20px 54px;
+      background:
+        radial-gradient(ellipse at 15% 6%, rgba(43,91,156,.2), transparent 40%),
+        radial-gradient(ellipse at 92% 95%, rgba(154,47,59,.15), transparent 38%),
+        #101116;
+    }
+
+    button { font: inherit; }
+
+    .shell { width: min(1120px, 100%); margin: 0 auto; }
+
+    .page-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .page-title { margin: 0; font-size: 24px; font-weight: 800; }
+    .page-subtitle { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+    .toolbar-left, .toolbar-right { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+    .toolbar-label { color: var(--muted); font-size: 12px; font-weight: 650; }
+
+    .segmented, .page-tabs {
+      display: inline-flex;
+      gap: 3px;
+      padding: 4px;
+      border: 1px solid #343640;
+      border-radius: 9px;
+      background: #13151c;
+    }
+
+    .segmented button, .page-tabs button {
+      min-height: 32px;
+      padding: 6px 11px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .segmented button[aria-pressed="true"] { background: #38313a; color: #fff; }
+    .page-tabs { padding: 3px; }
+    .page-tabs button { padding-inline: 18px; }
+    .page-tabs button[aria-selected="true"] { background: var(--red); color: white; }
+
+    .action {
+      min-height: 38px;
+      padding: 8px 13px;
+      border: 1px solid rgba(240,68,56,.42);
+      border-radius: 8px;
+      background: #1a1b22;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    .action.primary { background: #ba3b35; border-color: #d6534b; }
+    .action:hover { border-color: var(--gold); }
+
+    .recap {
+      --bg-image: none;
+      position: relative;
+      isolation: isolate;
+      overflow: hidden;
+      padding: 22px;
+      border: 1px solid rgba(255,255,255,.19);
+      border-radius: 19px;
+      background-color: #171820;
+      background-image: linear-gradient(rgba(12,14,21,.65), rgba(12,14,21,.78)), var(--bg-image),
+        radial-gradient(ellipse at 10% 0%, rgba(38,91,153,.2), transparent 43%),
+        radial-gradient(ellipse at 4% 92%, rgba(150,44,54,.17), transparent 38%),
+        linear-gradient(115deg,#11141b,#17151a);
+      background-position: center, center, center, center, center;
+      background-size: cover, cover, cover, cover, cover;
+      box-shadow: 0 24px 70px rgba(0,0,0,.28);
+    }
+
+    .recap::before {
+      position: absolute;
+      z-index: -1;
+      inset: 0 0 auto;
+      height: 4px;
+      background: linear-gradient(90deg,var(--red),var(--gold),var(--mint));
+      content: "";
+    }
+
+    .recap-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark {
+      display: block;
+      width: 48px;
+      height: 48px;
+      flex: 0 0 48px;
+      border: 1px solid rgba(240,68,56,.6);
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .brand-name { margin: 0; font-size: 23px; font-weight: 900; line-height: 1; }
+    .brand-kicker { margin: 6px 0 0; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+    .identity { text-align: right; }
+    .identity-name { margin: 0; font-size: 17px; font-weight: 800; }
+    .identity-label { margin: 5px 0 0; color: var(--ink); font-size: 12px; font-weight: 750; }
+
+    .recap-grid { display: grid; grid-template-columns: minmax(260px,.62fr) minmax(0,1fr); gap: 14px; margin-top: 14px; align-items: stretch; }
+    .left-column { display: grid; grid-template-rows: auto minmax(0,1fr); align-content: stretch; gap: 10px; min-width: 0; }
+
+    .box { border: 1px solid var(--line); border-radius: var(--round); background: var(--panel); }
+    .site-box { padding: 12px 15px; border-color: rgba(240,68,56,.55); background: rgba(45,24,28,.88); }
+    .eyebrow { margin: 0; color: var(--muted); font-size: 10px; font-weight: 850; letter-spacing: .15em; text-transform: uppercase; }
+    .site-name { margin: 4px 0 0; font-size: 20px; font-weight: 850; }
+
+    .hero-stats { display: flex; flex-direction: column; padding: 16px; border-color: rgba(243,189,72,.4); background: rgba(30,29,28,.92); }
+    .hero-title { margin: 0; color: var(--gold); font-size: 10px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
+    .success-number { margin: 3px 0 0; color: var(--gold); font-size: clamp(48px,7vw,66px); font-weight: 950; line-height: .98; }
+    .success-caption { display: flex; justify-content: space-between; gap: 10px; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .rate-track { height: 7px; overflow: hidden; margin-top: 13px; border-radius: 99px; background: rgba(255,255,255,.1); }
+    .rate-fill { width: 80%; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#59d6a8,#7ae0bb); }
+    .status-line { display: flex; justify-content: space-between; gap: 14px; margin-top: 8px; color: var(--muted); font-size: 11px; }
+    .counts { display: grid; flex: 1; grid-template-columns: repeat(3,minmax(0,1fr)); grid-template-rows: repeat(2,minmax(72px,1fr)); gap: 8px; margin-top: 14px; }
+    .count-cell { display: flex; min-width: 0; flex-direction: column; justify-content: center; padding: 10px; border: 1px solid rgba(255,255,255,.07); border-radius: 9px; background: rgba(36,38,48,.82); }
+    .count-value { margin: 0; font-size: 22px; font-weight: 900; }
+    .count-label { margin: 4px 0 0; color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: .1em; text-transform: uppercase; }
+
+    .products { min-width: 0; padding: 15px; border-color: rgba(255,255,255,.15); background: rgba(17,19,27,.93); }
+    .section-head { display: flex; align-items: end; justify-content: space-between; gap: 10px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
+    .section-title { margin: 4px 0 0; font-size: 22px; font-weight: 900; }
+    .section-note { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .1em; text-align: right; text-transform: uppercase; }
+    .product-list { display: grid; gap: 9px; margin-top: 10px; }
+    .product { padding: 12px; border: 1px solid rgba(243,189,72,.28); border-radius: 10px; background: var(--panel-soft); }
+    .product:nth-child(2) { border-color: rgba(169,181,255,.3); }
+    .product:nth-child(3) { border-color: rgba(238,137,82,.3); }
+    .product:nth-child(4) { border-color: rgba(101,220,177,.3); }
+    .product-main { display: flex; align-items: start; gap: 11px; }
+    .rank { display: grid; width: 31px; height: 31px; flex: 0 0 31px; place-items: center; border: 1px solid rgba(243,189,72,.55); border-radius: 8px; color: var(--gold); font-size: 11px; font-weight: 900; }
+    .product-copy { min-width: 0; flex: 1; }
+    .product-name { margin: 0; font-size: 13px; font-weight: 780; line-height: 1.35; }
+    .product-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+    .tag { padding: 4px 7px; border-radius: 99px; background: rgba(243,189,72,.13); color: var(--gold); font-size: 9px; font-weight: 800; }
+    .tag.mint { background: rgba(101,220,177,.11); color: var(--mint); }
+    .bar { height: 5px; margin-top: 10px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.1); }
+    .bar i { display: block; width: 82%; height: 100%; border-radius: inherit; background: var(--gold); }
+    .product:nth-child(2) .bar i { width: 62%; background: var(--blue); }
+    .product:nth-child(3) .bar i { width: 46%; background: #ee8952; }
+    .product:nth-child(4) .bar i { width: 31%; background: var(--mint); }
+    .additional { display: flex; justify-content: space-between; margin-top: 9px; padding: 9px 11px; border-radius: 8px; background: rgba(255,255,255,.045); color: var(--muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+
+    .recap-foot { display: flex; align-items: end; justify-content: space-between; gap: 14px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .join { display: flex; align-items: center; gap: 10px; padding: 7px; border: 1px solid var(--line); border-radius: 9px; background: rgba(12,14,20,.78); }
+    .qr { width: 68px; height: 68px; border-radius: 5px; background: white; }
+    .join-title { margin: 0; font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+    .join-url { margin: 5px 0 0; color: var(--muted); font-size: 9px; }
+    .footnote { margin: 0; color: var(--quiet); font-size: 9px; text-align: right; }
+
+    .details { display: none; }
+    .details.active { display: grid; gap: 10px; }
+    .detail-tools { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    .search { min-height: 36px; min-width: min(300px,100%); flex: 1; padding: 8px 11px; border: 1px solid #3b3d47; border-radius: 7px; background: #11131a; color: var(--ink); font-size: 12px; }
+    .filter { min-height: 34px; padding: 6px 10px; border: 1px solid #3b3d47; border-radius: 7px; background: #171922; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .detail-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    .detail-meta { margin: 0; color: var(--muted); font-size: 10px; }
+    .detail-name { margin: 4px 0 0; font-size: 14px; font-weight: 800; }
+    .detail-info { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; color: var(--muted); font-size: 10px; }
+    .status { align-self: start; padding: 5px 8px; border: 1px solid rgba(101,220,177,.35); border-radius: 99px; color: var(--mint); font-size: 9px; font-weight: 850; text-transform: uppercase; }
+    .status.failed { border-color: rgba(238,113,108,.4); color: var(--rose); }
+    .status.pending { border-color: rgba(243,189,72,.4); color: var(--gold); }
+
+    @media (max-width: 760px) {
+      body { padding: 20px 12px 36px; }
+      .toolbar { align-items: flex-start; flex-direction: column; }
+      .recap { padding: 15px; }
+      .recap-grid { grid-template-columns: 1fr; }
+      .left-column { grid-template-rows: auto auto; }
+      .hero-stats { display: block; }
+      .counts { grid-template-columns: repeat(3,minmax(0,1fr)); grid-template-rows: auto; }
+      .count-cell { padding: 8px; }
+      .count-value { font-size: 19px; }
+      .section-title { font-size: 19px; }
+    }
+
+    @media (max-width: 430px) {
+      .page-head { align-items: flex-start; flex-direction: column; }
+      .brand-name { font-size: 20px; }
+      .identity { text-align: left; }
+      .success-number { font-size: 50px; }
+      .counts { grid-template-columns: repeat(2,minmax(0,1fr)); }
+      .recap-foot { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="page-head">
+      <div>
+        <h1 class="page-title">My checkouts</h1>
+        <p class="page-subtitle">Your personal drop summary and checkout history.</p>
+      </div>
+    </header>
+
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <span class="toolbar-label">Background</span>
+        <div class="segmented" role="group" aria-label="Recap background">
+          <button type="button" aria-pressed="true" data-background="profile">ChudACO</button>
+          <button type="button" aria-pressed="false" data-background="day">Day</button>
+          <button type="button" aria-pressed="false" data-background="night">Night</button>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <button class="action" type="button">Copy image</button>
+        <button class="action primary" type="button">Download image</button>
+      </div>
+    </div>
+
+    <nav class="page-tabs" role="tablist" aria-label="Checkout views">
+      <button type="button" role="tab" aria-selected="true" aria-controls="summary-view" id="summary-tab">Summary</button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="details-view" id="details-tab">Details</button>
+    </nav>
+
+    <section class="recap" id="summary-view" role="tabpanel" aria-labelledby="summary-tab" style="--bg-image: none">
+      <header class="recap-head">
+        <div class="brand">
+          <img class="brand-mark" src="apps/web/public/images/setup-guide-header.png" alt="ChudACO">
+          <div>
+            <p class="brand-name">MY <span style="color:var(--gold)">CHUDACO</span></p>
+            <p class="brand-kicker">Personal checkout recap</p>
+          </div>
+        </div>
+        <div class="identity">
+          <p class="identity-name">Oct 9, 2026</p>
+          <p class="identity-label">originaldyna</p>
+        </div>
+      </header>
+
+      <div class="recap-grid">
+        <aside class="left-column">
+          <section class="box site-box">
+            <p class="eyebrow" style="color:#ff938b">Top retailer</p>
+            <p class="site-name">Target</p>
+          </section>
+
+          <section class="box hero-stats">
+            <p class="hero-title">Your checkout summary</p>
+            <p class="success-number">12</p>
+            <div class="success-caption"><span>successful checkouts</span><span>15 total attempts</span></div>
+            <div class="rate-track"><div class="rate-fill" style="width:80%"></div></div>
+            <div class="status-line"><span>3 failed</span><span>80% success rate</span></div>
+            <div class="counts">
+              <div class="count-cell"><p class="count-value">24</p><p class="count-label">Units</p></div>
+              <div class="count-cell"><p class="count-value">7</p><p class="count-label">Products</p></div>
+              <div class="count-cell"><p class="count-value">$1,248</p><p class="count-label">Successful spend</p></div>
+              <div class="count-cell"><p class="count-value">$104</p><p class="count-label">Avg. order</p></div>
+              <div class="count-cell"><p class="count-value">3</p><p class="count-label">Retailers</p></div>
+              <div class="count-cell"><p class="count-value">12</p><p class="count-label">Checkouts</p></div>
+            </div>
+          </section>
+        </aside>
+
+        <section class="box products">
+          <div class="section-head">
+            <div><p class="eyebrow">Your haul</p><h2 class="section-title">Top products</h2></div>
+            <span class="section-note">By units moved</span>
+          </div>
+          <div class="product-list">
+            <article class="product">
+              <div class="product-main"><span class="rank">01</span><div class="product-copy"><h3 class="product-name">Pokémon TCG: Mega Evolution—Delta Reign Booster Bundle</h3><div class="product-tags"><span class="tag">8 units</span><span class="tag mint">$31.99 ea</span><span class="tag mint">$255.92 spent</span></div><div class="bar"><i style="width:100%"></i></div></div></div>
+            </article>
+            <article class="product">
+              <div class="product-main"><span class="rank">02</span><div class="product-copy"><h3 class="product-name">30th Celebration Elite Trainer Box</h3><div class="product-tags"><span class="tag">6 units</span><span class="tag mint">$69.99 ea</span><span class="tag mint">$419.94 spent</span></div><div class="bar"><i></i></div></div></div>
+            </article>
+            <article class="product">
+              <div class="product-main"><span class="rank">03</span><div class="product-copy"><h3 class="product-name">Delta Reign Elite Trainer Box</h3><div class="product-tags"><span class="tag">4 units</span><span class="tag mint">$59.99 ea</span><span class="tag mint">$239.96 spent</span></div><div class="bar"><i></i></div></div></div>
+            </article>
+            <article class="product">
+              <div class="product-main"><span class="rank">04</span><div class="product-copy"><h3 class="product-name">30th Celebration Figure Collection—Mew</h3><div class="product-tags"><span class="tag">2 units</span><span class="tag mint">$39.99 ea</span><span class="tag mint">$79.98 spent</span></div><div class="bar"><i></i></div></div></div>
+            </article>
+          </div>
+          <div class="additional"><span>Additional products</span><span>+3</span></div>
+        </section>
+      </div>
+
+      <footer class="recap-foot">
+        <div class="join">
+          <img class="qr" src="apps/web/public/images/chudaco-discord-qr.png" alt="Discord invite QR code">
+          <div><p class="join-title">Scan to join ChudACO</p><p class="join-url">discord.gg/dpcqGawDY4</p></div>
+        </div>
+        <p class="footnote">Your private checkout summary</p>
+      </footer>
+    </section>
+
+    <section class="details" id="details-view" role="tabpanel" aria-labelledby="details-tab">
+      <div class="detail-tools">
+        <input class="search" type="search" placeholder="Search item or retailer" aria-label="Search item or retailer">
+        <div>
+          <button class="filter" type="button">All</button>
+          <button class="filter" type="button">Success</button>
+          <button class="filter" type="button">In queue</button>
+          <button class="filter" type="button">Failed</button>
+        </div>
+      </div>
+      <article class="detail-row">
+        <div><p class="detail-meta">Target · Oct 9, 2026</p><h2 class="detail-name">Pokémon TCG: Mega Evolution—Delta Reign Booster Bundle</h2><div class="detail-info"><span>Qty 2</span><span>$63.98</span><span>Ticket TKT-10542</span></div></div>
+        <span class="status">Success</span>
+      </article>
+      <article class="detail-row">
+        <div><p class="detail-meta">Target · Oct 9, 2026</p><h2 class="detail-name">30th Celebration Elite Trainer Box</h2><div class="detail-info"><span>Qty 2</span><span>$139.98</span><span>Ticket TKT-20418</span></div></div>
+        <span class="status">Success</span>
+      </article>
+      <article class="detail-row">
+        <div><p class="detail-meta">Target · Oct 9, 2026</p><h2 class="detail-name">Delta Reign Elite Trainer Box</h2><div class="detail-info"><span>Qty 2</span><span>$119.98</span><span>Ticket TKT-40987</span></div></div>
+        <span class="status">Success</span>
+      </article>
+      <article class="detail-row">
+        <div><p class="detail-meta">Pokemon Center · Oct 9, 2026</p><h2 class="detail-name">30th Celebration Figure Collection—Mew</h2><div class="detail-info"><span>Qty 2</span><span>$79.98</span><span>Ticket TKT-70125</span></div></div>
+        <span class="status">Success</span>
+      </article>
+      <article class="detail-row">
+        <div><p class="detail-meta">Target · Oct 9, 2026</p><h2 class="detail-name">30th Celebration Poster Collection</h2><div class="detail-info"><span>Order not captured</span><span>Ticket TKT-88416</span></div></div>
+        <span class="status failed">Failed</span>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    const tabs = document.querySelectorAll('[role="tab"]');
+    const summary = document.getElementById("summary-view");
+    const details = document.getElementById("details-view");
+    tabs.forEach((tab) => tab.addEventListener("click", () => {
+      const isSummary = tab.id === "summary-tab";
+      tabs.forEach((entry) => entry.setAttribute("aria-selected", String(entry === tab)));
+      summary.hidden = !isSummary;
+      details.classList.toggle("active", !isSummary);
+    }));
+
+    const recap = document.querySelector(".recap");
+    const backgrounds = {
+      profile: "none",
+      day: "url('apps/web/public/images/drop-recap-day.png')",
+      night: "url('apps/web/public/images/drop-recap-night.png')"
+    };
+    document.querySelectorAll("[data-background]").forEach((button) => button.addEventListener("click", () => {
+      document.querySelectorAll("[data-background]").forEach((entry) => entry.setAttribute("aria-pressed", String(entry === button)));
+      recap.style.setProperty("--bg-image", backgrounds[button.dataset.background]);
+    }));
+  </script>
+</body>
+</html>

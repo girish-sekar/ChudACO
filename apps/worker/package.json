@@ -8,11 +8,13 @@
     "dev": "dotenv -e ../../.env -- tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "dotenv -e ../../.env -- node dist/index.js",
+    "test": "tsx --test src/member-cleanup.test.ts",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
     "@chudaco/db": "workspace:*",
     "discord.js": "^14.22.1",
+    "googleapis": "^144.0.0",
     "imapflow": "^1.0.181"
   },
   "devDependencies": {

@@ -40,6 +40,8 @@ services:
     working_dir: /workspace
     env_file:
       - .env
+    environment:
+      GOOGLE_SERVICE_ACCOUNT_KEY_PATH: /workspace/studious-loader-506306-k2-d641df9f3ab4.json
     command: >
       sh -lc "corepack pnpm install --frozen-lockfile && corepack pnpm --filter @chudaco/db build && corepack pnpm --filter worker build && corepack pnpm --filter worker start"
     volumes:

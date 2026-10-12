@@ -8,6 +8,7 @@ const sections = [
   { id: "getting-access", label: "1. Get access" },
   { id: "signing-in", label: "2. Sign in" },
   { id: "adding-account", label: "3. Add an ACO account" },
+  { id: "retailer-troubleshooting", label: "Retailer troubleshooting" },
   { id: "imap-passwords", label: "Generating IMAP Passwords" },
   { id: "name-account", label: "4. Name your account" },
   { id: "pricing", label: "Understanding pricing" },
@@ -114,7 +115,7 @@ export default function SetupGuidePage() {
           <section id="adding-account" className="border-b border-[#2C2D3A] pb-10">
             <h2 className="font-heading text-2xl font-semibold">3. Add an ACO account</h2>
             <p className="mt-2 max-w-[68ch] text-[#9C9AAE]">
-              Each ACO account is one retailer login. We currently support Target, Pokemon Center, Sam&apos;s Club, Costco, and Bandai, with a default limit of 5 accounts per user.
+              Each ACO account is one retailer login. There is no per-user account limit. Pokemon Center profiles share a platform limit of 250, including 50 managed outside this website.
             </p>
 
             <h3 className="mt-6 font-heading text-lg font-semibold">Account basics</h3>
@@ -191,6 +192,58 @@ export default function SetupGuidePage() {
               <li><strong>CVV:</strong> Enter the security code.</li>
               <li><strong>Cardholder name:</strong> Enter the name exactly as printed on the card.</li>
             </ul>
+          </section>
+
+          <section id="retailer-troubleshooting" className="border-b border-[#2C2D3A] pb-10">
+            <h2 className="font-heading text-2xl font-semibold">Retailer troubleshooting</h2>
+            <section className="mt-5 max-w-[68ch]">
+              <h3 className="font-heading text-lg font-semibold">Target</h3>
+              <p className="mt-2 text-[#9C9AAE]">
+                Target controls order acceptance and cancellation decisions. A checkout confirmation does not guarantee that an order will remain active.
+              </p>
+
+              <h4 className="mt-5 font-semibold">Check a canceled order</h4>
+              <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-[#D7D6E4]">
+                <li>
+                  Sign in to the Target account used for checkout. Open{" "}
+                  <a href="https://www.target.com/orders" target="_blank" rel="noreferrer" className="text-[#4C79FF] underline hover:text-[#7095FF]">Target order history</a>
+                  , select the canceled order, and copy its order number.
+                </li>
+                <li>While still signed in to Target in the same browser, copy the guest-order lookup URL below and replace <code className="rounded bg-[#212230] px-1">PUTYOURORDERNUMBERHERE</code> with the order number you copied. Keep the <code className="rounded bg-[#212230] px-1">key=</code> value unchanged.</li>
+                <li className="min-w-0">
+                  Open the completed URL in that browser. When the response loads, use <kbd className="rounded border border-[#2C2D3A] bg-[#212230] px-1.5 py-0.5 font-mono text-xs">Ctrl+F</kbd> (Windows/Linux) or <kbd className="rounded border border-[#2C2D3A] bg-[#212230] px-1.5 py-0.5 font-mono text-xs">Cmd+F</kbd> (Mac), search for <code className="rounded bg-[#212230] px-1">reason</code>, and read the value associated with the canceled item or order.
+                </li>
+              </ol>
+              <code className="mt-3 block max-w-[68ch] break-all rounded-lg border border-[#2C2D3A] bg-[#18181F] p-3 font-mono text-xs leading-relaxed text-[#B9C6FF]">
+                https://api.target.com/guest_order_aggregations/v1/PUTYOURORDERNUMBERHERE?key=f5e5f35b610d54dff3f3c9087c837f479f22686e
+              </code>
+              <p className="mt-2 max-w-[68ch] text-xs text-[#9C9AAE]">
+                Use this guest-services-provided lookup only for an order you placed. The response may contain private order information; do not post or share the full response. If the request fails or has no <code className="rounded bg-[#212230] px-1">reason</code> value, check the cancellation email and contact{" "}
+                  <a href="https://help.target.com/help" target="_blank" rel="noreferrer" className="text-[#4C79FF] underline hover:text-[#7095FF]">Target Guest Services</a>
+                  .
+              </p>
+              <ol start={4} className="mt-2 list-decimal space-y-2 pl-5 text-sm text-[#D7D6E4]">
+                <li>Open the cancellation email for that order and check for a stated reason or action Target asks you to take.</li>
+                <li>A pending card authorization is not necessarily a completed charge. Check with your card issuer if it does not clear after Target confirms the cancellation.</li>
+              </ol>
+
+              <h4 className="mt-5 font-semibold">What common cancellation labels mean</h4>
+              <ul className="mt-2 list-disc space-y-2 pl-5 text-sm text-[#D7D6E4]">
+                <li><strong>Item Demand:</strong> A Target-side demand or purchase-limit cancellation for the item. It does not reveal the exact threshold or signals involved. Check the item&apos;s availability and published quantity limits; do not keep resubmitting the canceled order.</li>
+                <li><strong>Reseller:</strong> Target classified the order for possible resale or purchase-policy review. The label does not identify the specific reason; pause further attempts and ask Target Support to review it.</li>
+                <li><strong>Payment or billing:</strong> The payment could not be authorized, or the billing information needs attention. Check the notice from Target, verify the payment method with its issuer, and correct any inaccurate billing details.</li>
+                <li><strong>Address or delivery:</strong> Target could not validate or fulfill the delivery details. Confirm the recipient and address are accurate and deliverable; contact Target if the details are correct but the order was still canceled.</li>
+                <li><strong>“Burned account”:</strong> This is community slang, not an official Target status. People use it to describe accounts experiencing repeated or immediate cancellations. Only Target can confirm an account-specific restriction or the steps available to resolve it.</li>
+              </ul>
+
+              <div className="mt-5 rounded-lg border border-[#5C4A1A] bg-[#332B12] px-4 py-3 text-sm text-[#FFDB79]">
+                Use the lookup to understand your own canceled order, not to bypass a cancellation or purchase limit. Do not create alternate accounts, change personal details, or repeatedly retry orders to get around a retailer review.
+              </div>
+
+              <p className="mt-4 text-sm text-[#9C9AAE]">
+                Before another ChudACO checkout, resolve the notice with Target, update changed credentials in your account settings, and confirm your account and order details comply with Target&apos;s terms.
+              </p>
+            </section>
           </section>
 
           <section id="imap-passwords" className="border-b border-[#2C2D3A] pb-10">
@@ -464,7 +517,7 @@ export default function SetupGuidePage() {
               </div>
               <div>
                 <h3 className="font-heading text-base font-semibold text-[#F2F1F6]">Can I add more than one account for the same retailer?</h3>
-                <p className="mt-1">Yes, as long as you stay within the current 5-account total limit.</p>
+                <p className="mt-1">Yes. There is no per-user account limit; Pokemon Center profiles share a platform-wide limit of 250, including 50 managed outside this website.</p>
               </div>
               <div>
                 <h3 className="font-heading text-base font-semibold text-[#F2F1F6]">I changed my Discord username. Do I need to do anything?</h3>

@@ -1,6 +1,7 @@
 import { FeeType, prisma } from "@chudaco/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { resolveCheckoutRetailer } from "@/lib/checkout-retailer";
 
 const workerCheckoutSchema = z.object({
   profile: z.string().trim().min(1),
@@ -157,11 +158,14 @@ export async function POST(request: Request) {
     );
   }
 
+  const retailer = resolveCheckoutRetailer(data.site, account.retailer);
+
   const dedupeWindowStart = new Date(Date.now() - 5 * 60 * 1000);
   const existing = await prisma.checkout.findFirst({
     where: {
       acoAccountId: account.id,
       item: data.item,
+      retailer,
       price: normalizedPrice,
       occurredAt: { gte: dedupeWindowStart },
     },
@@ -212,7 +216,7 @@ export async function POST(request: Request) {
       data: {
         userId: account.userId,
         acoAccountId: account.id,
-        retailer: account.retailer,
+        retailer,
         item: data.item,
         qtyLabel: `Qty ${data.quantity}`,
         price: normalizedPrice,

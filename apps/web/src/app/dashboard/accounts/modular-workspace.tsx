@@ -34,8 +34,8 @@ const profileFields = [
 const csvColumns: Record<Section, string[]> = {
   accounts: ["accountNumber", "retailer", "loginEmail", "loginPassword", "enabled", "profileName", "defaultCardName", "retailerCardName", "imapEmail"],
   profiles: [
-    "profileName", "shippingName", "shippingPhone", "shippingAddr", "shippingCity", "shippingState", "shippingZip",
-    "billingSameAsShipping", "billingName", "billingPhone", "billingAddr", "billingCity", "billingState", "billingZip",
+    "profileName", "shippingName", "shippingPhone", "shippingAddr", "shippingAddr2", "shippingCity", "shippingState", "shippingZip",
+    "billingSameAsShipping", "billingName", "billingPhone", "billingAddr", "billingAddr2", "billingCity", "billingState", "billingZip",
   ],
   cards: ["cardName", "cardholderName", "cardBrand", "cardNumber", "expMonth", "expYear", "cvv"],
   imap: ["email", "emailProvider", "imapHost", "imapPort", "imapSecurity", "password"],
@@ -54,8 +54,8 @@ const csvExamples: Record<Section, string[]> = {
     "REPLACE_ME_PROFILE_NAME", "REPLACE_ME_CARD_NAME", "", "REPLACE_ME_IMAP_EMAIL@example.com",
   ],
   profiles: [
-    "REPLACE_ME_PROFILE_NAME", "REPLACE_ME_NAME", "REPLACE_ME_PHONE", "REPLACE_ME_ADDRESS", "REPLACE_ME_CITY",
-    "REPLACE_ME_STATE", "REPLACE_ME_ZIP", "true", "", "", "", "", "", "",
+    "REPLACE_ME_PROFILE_NAME", "REPLACE_ME_NAME", "REPLACE_ME_PHONE", "REPLACE_ME_ADDRESS", "",
+    "REPLACE_ME_CITY", "REPLACE_ME_STATE", "REPLACE_ME_ZIP", "true", "", "", "", "", "", "", "",
   ],
   cards: ["REPLACE_ME_CARD_NAME", "REPLACE_ME_CARDHOLDER", "Visa", "REPLACE_ME_CARD_NUMBER", "12", "2030", "REPLACE_ME_CVV"],
   imap: ["REPLACE_ME_EMAIL@example.com", "Gmail", "imap.gmail.com", "993", "SSL/TLS", "REPLACE_ME_PASSWORD"],
@@ -148,6 +148,15 @@ function toNullable(value: string | null | undefined): string | null {
   return clean(value) || null;
 }
 
+function splitAddressLines(value: string | null | undefined) {
+  const [line1 = "", ...remainingLines] = (value ?? "").replace(/\r\n/g, "\n").split("\n");
+  return { line1, line2: remainingLines.join("\n") };
+}
+
+function joinAddressLines(line1: string | null | undefined, line2: string | null | undefined): string | null {
+  return [clean(line1), clean(line2)].filter(Boolean).join("\n") || null;
+}
+
 function accountBasePayload(account: AcoAccount) {
   return {
     label: account.label,
@@ -234,20 +243,24 @@ export function ModularAccountsWorkspace({
   accounts,
   cardByAccount,
   onRefresh,
-  modeSaving,
-  onModeChange,
   loading,
   loadError,
   retailers,
+  totalPokemonCenterProfiles,
+  maxPokemonCenterProfiles,
+  managedPokemonCenterLimit,
+  managedPokemonCenterProfiles,
 }: {
   accounts: AcoAccount[];
   cardByAccount: Record<string, CardOnFile | null>;
   onRefresh: () => Promise<unknown>;
-  modeSaving: boolean;
-  onModeChange: (mode: "classic" | "modular") => void;
   loading: boolean;
   loadError: boolean;
   retailers: string[];
+  totalPokemonCenterProfiles: number;
+  maxPokemonCenterProfiles: number;
+  managedPokemonCenterLimit: number;
+  managedPokemonCenterProfiles: number;
 }) {
   const { data: profilesData, error: profilesError, mutate: mutateProfiles } = useSWR<{ data: AcoProfileEntry[] }>("/api/aco-profiles", fetchJson);
   const { data: cardsData, error: cardsError, mutate: mutateCards } = useSWR<{ data: AcoCardEntry[] }>("/api/aco-cards", fetchJson);
@@ -319,6 +332,20 @@ export function ModularAccountsWorkspace({
           defaultValue={defaultValue}
           required={required}
           className="min-w-0 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]"
+        />
+      </label>
+    );
+  }
+
+  function addressLine2Field(label: string, name: string, defaultValue = "") {
+    return (
+      <label className="grid gap-1 text-xs text-[#9C9AAE]">
+        <span>{label}</span>
+        <textarea
+          name={name}
+          rows={2}
+          defaultValue={defaultValue}
+          className="min-w-0 resize-y rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]"
         />
       </label>
     );
@@ -541,10 +568,17 @@ export function ModularAccountsWorkspace({
       } else if (editor.section === "profiles") {
         const sameBilling = formData.get("billingSameAsShipping") === "on";
         if (!value("name")) throw new Error("Enter a profile name.");
+        const profileValues = Object.fromEntries(profileFields.map((key) => {
+          if (sameBilling && key.startsWith("billing")) return [key, null];
+          if (key === "shippingAddr" || key === "billingAddr") {
+            return [key, joinAddressLines(value(key), value(`${key}2`))];
+          }
+          return [key, nullable(key)];
+        }));
         const saved = await sendJson(libraryUrl("profiles", editor.id), editor.id ? "PATCH" : "POST", {
           name: value("name"),
           billingSameAsShipping: sameBilling,
-          ...Object.fromEntries(profileFields.map((key) => [key, sameBilling && key.startsWith("billing") ? null : nullable(key)])),
+          ...profileValues,
         });
         if (saved.warning) warnings.push(saved.warning);
       } else if (editor.section === "imap") {
@@ -724,10 +758,20 @@ export function ModularAccountsWorkspace({
               if (!name) throw new Error("profileName is required.");
               const existing = knownProfiles.get(name.toLowerCase());
               const billingSameValue = clean(row.billingSameAsShipping).toLowerCase();
+              const importedProfileFields = Object.fromEntries(profileFields.map((key) => {
+                if (key === "shippingAddr" || key === "billingAddr") {
+                  const currentAddress = splitAddressLines(existing?.[key]);
+                  const line1 = row[key] === undefined ? currentAddress.line1 : row[key];
+                  const line2Key = `${key}2`;
+                  const line2 = row[line2Key] === undefined ? currentAddress.line2 : row[line2Key];
+                  return [key, joinAddressLines(line1, line2)];
+                }
+                return [key, row[key] === undefined ? existing?.[key] ?? null : toNullable(row[key])];
+              }));
               const saved = await sendJson<AcoProfileEntry>(libraryUrl("profiles", existing?.id), existing ? "PATCH" : "POST", {
                 name: existing?.name ?? name,
                 billingSameAsShipping: billingSameValue ? billingSameValue === "true" : existing?.billingSameAsShipping ?? true,
-                ...Object.fromEntries(profileFields.map((key) => [key, row[key] === undefined ? existing?.[key] ?? null : toNullable(row[key])])),
+                ...importedProfileFields,
               });
               knownProfiles.set(name.toLowerCase(), saved.data);
               warning = saved.warning;
@@ -789,13 +833,6 @@ export function ModularAccountsWorkspace({
     }
     if (errors.length) setImportState((current) => ({ ...current, error: errors.slice(0, 8).join("\n") }));
   }
-
-  const modeToggle = (
-    <div className="inline-flex rounded-md border border-[#2C2D3A] p-1" aria-label="Account management mode">
-      <button type="button" disabled={modeSaving} className="rounded px-3 py-1.5 text-xs text-[#9C9AAE] hover:text-[#F2F1F6]" onClick={() => onModeChange("classic")}>Classic</button>
-      <button type="button" disabled={modeSaving} aria-pressed="true" className="rounded bg-[#2F5BFF] px-3 py-1.5 text-xs font-medium text-white">Modular</button>
-    </div>
-  );
 
   const setupIssues = accounts.flatMap((account) => {
     const issues: Array<{ section: Section; targetId: string; message: string }> = [];
@@ -881,6 +918,10 @@ export function ModularAccountsWorkspace({
       : section === "cards"
         ? cards.length === 0 ? "No cards yet." : null
         : imapConfigs.length === 0 ? "No IMAP inboxes yet." : null;
+  const pokemonCenterUsagePercent = maxPokemonCenterProfiles > 0
+    ? Math.min(100, (totalPokemonCenterProfiles / maxPokemonCenterProfiles) * 100)
+    : 0;
+  const pokemonCenterSlotsRemaining = Math.max(0, managedPokemonCenterLimit - managedPokemonCenterProfiles);
 
   return (
     <div className="space-y-6">
@@ -888,8 +929,34 @@ export function ModularAccountsWorkspace({
         <div>
           <h1 className="font-heading text-3xl font-bold">Account management</h1>
           <p className="mt-1 text-sm text-[#9C9AAE]">Create profiles, cards, and IMAP inboxes once, then link them to accounts from Account info.</p>
+          {!loading ? (
+            <div className="mt-4 w-full max-w-xl space-y-2.5" aria-label="Pokémon Center profile capacity">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <p className="text-sm font-semibold text-[#DDF8FF]">Pokémon Center profiles</p>
+                <p className="font-heading text-lg font-bold tabular-nums text-white">
+                  {totalPokemonCenterProfiles}<span className="ml-1 text-sm font-medium text-[#A9B8CE]">/ {maxPokemonCenterProfiles} used</span>
+                </p>
+              </div>
+              <div
+                className="h-3.5 overflow-hidden rounded-full bg-[#202737] ring-1 ring-[#7085A8]/40"
+                role="progressbar"
+                aria-label="Pokémon Center profiles used"
+                aria-valuemin={0}
+                aria-valuemax={maxPokemonCenterProfiles}
+                aria-valuenow={Math.min(totalPokemonCenterProfiles, maxPokemonCenterProfiles)}
+                aria-valuetext={`${totalPokemonCenterProfiles} of ${maxPokemonCenterProfiles} profiles used`}
+              >
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-[#26D9FF] via-[#4788FF] to-[#45F0B5] shadow-[0_0_18px_rgba(38,217,255,0.55)] transition-[width] duration-700 ease-out"
+                  style={{ width: `${pokemonCenterUsagePercent}%` }}
+                />
+              </div>
+              <p className="text-sm font-medium text-[#A9B8CE]">
+                {pokemonCenterSlotsRemaining} {pokemonCenterSlotsRemaining === 1 ? "profile" : "profiles"} available
+              </p>
+            </div>
+          ) : null}
         </div>
-        {modeToggle}
       </header>
 
       {!loading && !loadError && librariesLoaded ? (
@@ -1091,7 +1158,8 @@ export function ModularAccountsWorkspace({
                     <div className="grid gap-3 sm:grid-cols-2">
                       {field("Shipping name", "shippingName", editingProfile?.shippingName ?? "")}
                       {field("Shipping phone", "shippingPhone", editingProfile?.shippingPhone ?? "", "tel")}
-                      {field("Shipping address", "shippingAddr", editingProfile?.shippingAddr ?? "")}
+                      {field("Shipping address line 1", "shippingAddr", splitAddressLines(editingProfile?.shippingAddr).line1)}
+                      {addressLine2Field("Shipping address line 2", "shippingAddr2", splitAddressLines(editingProfile?.shippingAddr).line2)}
                       {field("Shipping city", "shippingCity", editingProfile?.shippingCity ?? "")}
                       {field("Shipping state", "shippingState", editingProfile?.shippingState ?? "")}
                       {field("Shipping ZIP", "shippingZip", editingProfile?.shippingZip ?? "")}
@@ -1100,7 +1168,8 @@ export function ModularAccountsWorkspace({
                     <div className="grid gap-3 sm:grid-cols-2">
                       {field("Billing name", "billingName", editingProfile?.billingName ?? "")}
                       {field("Billing phone", "billingPhone", editingProfile?.billingPhone ?? "", "tel")}
-                      {field("Billing address", "billingAddr", editingProfile?.billingAddr ?? "")}
+                      {field("Billing address line 1", "billingAddr", splitAddressLines(editingProfile?.billingAddr).line1)}
+                      {addressLine2Field("Billing address line 2", "billingAddr2", splitAddressLines(editingProfile?.billingAddr).line2)}
                       {field("Billing city", "billingCity", editingProfile?.billingCity ?? "")}
                       {field("Billing state", "billingState", editingProfile?.billingState ?? "")}
                       {field("Billing ZIP", "billingZip", editingProfile?.billingZip ?? "")}

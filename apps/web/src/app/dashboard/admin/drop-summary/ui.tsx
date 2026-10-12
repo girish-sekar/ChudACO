@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
 import {
@@ -21,8 +22,8 @@ type PresetKey = "today" | "7d" | "30d" | "90d";
 type TabKey = "overview" | "executive-summary";
 
 const tabs: Array<{ key: TabKey; label: string }> = [
-  { key: "overview", label: "Overview" },
-  { key: "executive-summary", label: "Executive Summary" },
+  { key: "executive-summary", label: "Drop Recap" },
+  { key: "overview", label: "Analytics" },
 ];
 
 const presets: Array<{ key: PresetKey; label: string; days: number }> = [
@@ -48,7 +49,7 @@ export default function DropSummaryDashboard() {
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(toDateInputValue(now));
   const [activePreset, setActivePreset] = useState<PresetKey | null>("30d");
-  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [activeTab, setActiveTab] = useState<TabKey>("executive-summary");
 
   function applyPreset(preset: (typeof presets)[number]) {
     const end = new Date();
@@ -76,9 +77,9 @@ export default function DropSummaryDashboard() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="font-heading text-3xl font-bold">Drop Summary</h1>
+        <h1 className="font-heading text-3xl font-bold">Drop Recap</h1>
         <p className="mt-1 text-sm text-[#9C9AAE]">
-          Successful checkouts recorded from the #success Discord channel, for a selected time range.
+          Server-wide checkout performance and top products for your selected range.
         </p>
       </header>
 
@@ -214,7 +215,22 @@ export default function DropSummaryDashboard() {
                   <tbody>
                     {data.byItem.map((row) => (
                       <tr key={row.item} className="border-t border-[#2C2D3A]">
-                        <td className="py-2 pr-4 text-[#F2F1F6]">{row.item}</td>
+                        <td className="py-2 pr-4 text-[#F2F1F6]">
+                          <span className="flex items-center gap-2">
+                            {row.imageUrl ? (
+                              <Image
+                                src={row.imageUrl}
+                                alt=""
+                                aria-hidden="true"
+                                width={40}
+                                height={40}
+                                unoptimized
+                                className="h-10 w-10 shrink-0 rounded border border-white/10 bg-white object-contain"
+                              />
+                            ) : null}
+                            {row.item}
+                          </span>
+                        </td>
                         <td className="py-2 pr-4 text-[#9C9AAE]">{row.count}</td>
                         <td className="py-2 pr-4 text-[#9C9AAE]">
                           {row.pricedCount > 0

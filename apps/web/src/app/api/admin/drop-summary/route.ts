@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
 import {
+  resolveDropSummaryOrderPrice,
+  resolveDropSummaryPrice,
+  type DropSummaryPricingRule,
+} from "@/lib/drop-summary-pricing";
+import {
   fetchDiscordSuccessMessages,
   parseUsernameFromProfile,
   resolveDiscordUsername,
@@ -16,6 +21,7 @@ const querySchema = z.object({
 
 const MATCH_WINDOW_MS = 10 * 60 * 1000;
 const PRICE_MATCH_EPSILON = 0.01;
+const UNMAPPED_BUYER_DISCORD_ID = "346422586931937280";
 
 function toDayKey(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -82,9 +88,12 @@ export async function GET(request: NextRequest) {
       acoAccount: { select: { id: true, label: true } },
     },
   });
+  const pricingRules = await prisma.pricingRule.findMany({
+    select: { category: true, priceRangeLabel: true },
+  });
 
   const retailerMap = new Map<string, { label: string; count: number; volume: number }>();
-  const itemMap = new Map<string, { count: number; volume: number; pricedCount: number }>();
+  const itemMap = new Map<string, { count: number; volume: number; pricedCount: number; imageUrl: string | null }>();
   const dayMap = new Map<string, { count: number; volume: number }>();
   const buyerMap = new Map<string, { username: string; count: number; volume: number }>();
 
@@ -93,9 +102,17 @@ export async function GET(request: NextRequest) {
   const uniqueRetailers = new Set<string>();
 
   for (const checkout of checkouts) {
-    const price = Number(checkout.price);
-    totalVolume += price;
-    if (price > 0) {
+    const reportedPrice = Number(checkout.price);
+    const itemQuantity = parseItemQuantity(checkout.qtyLabel);
+    const backfilledUnitPrice =
+      reportedPrice > 0 ? null : resolveDropSummaryPrice(checkout.item, checkout.retailer, pricingRules);
+    const price =
+      reportedPrice > 0
+        ? reportedPrice
+        : (backfilledUnitPrice ?? 0);
+    const orderPrice = backfilledUnitPrice === null ? price : price * itemQuantity;
+    totalVolume += orderPrice;
+    if (orderPrice > 0) {
       pricedCheckoutCount += 1;
     }
     const retailerKey = normalizeRetailerKey(checkout.retailer);
@@ -103,16 +120,16 @@ export async function GET(request: NextRequest) {
 
     const retailerEntry = retailerMap.get(retailerKey) ?? { label: checkout.retailer, count: 0, volume: 0 };
     retailerEntry.count += 1;
-    retailerEntry.volume += price;
+    retailerEntry.volume += orderPrice;
     retailerMap.set(retailerKey, retailerEntry);
 
-    const itemQuantity = parseItemQuantity(checkout.qtyLabel);
     const itemName = normalizeItemName(checkout.item);
-    const itemEntry = itemMap.get(itemName) ?? { count: 0, volume: 0, pricedCount: 0 };
+    const itemEntry = itemMap.get(itemName) ?? { count: 0, volume: 0, pricedCount: 0, imageUrl: null };
     const eliteTrainerBox = isEliteTrainerBox(checkout.item);
     itemEntry.count += itemQuantity;
-    itemEntry.volume += price * (eliteTrainerBox ? 1 : itemQuantity);
-    if (price > 0) {
+    itemEntry.volume +=
+      backfilledUnitPrice !== null ? orderPrice : price * (eliteTrainerBox ? 1 : itemQuantity);
+    if (orderPrice > 0) {
       itemEntry.pricedCount += itemQuantity;
     }
     itemMap.set(itemName, itemEntry);
@@ -120,7 +137,7 @@ export async function GET(request: NextRequest) {
     const dayKey = toDayKey(checkout.occurredAt);
     const dayEntry = dayMap.get(dayKey) ?? { count: 0, volume: 0 };
     dayEntry.count += 1;
-    dayEntry.volume += price;
+    dayEntry.volume += orderPrice;
     dayMap.set(dayKey, dayEntry);
 
     const buyerEntry = buyerMap.get(checkout.userId) ?? {
@@ -129,7 +146,7 @@ export async function GET(request: NextRequest) {
       volume: 0,
     };
     buyerEntry.count += 1;
-    buyerEntry.volume += price;
+    buyerEntry.volume += orderPrice;
     buyerMap.set(checkout.userId, buyerEntry);
   }
 
@@ -137,7 +154,12 @@ export async function GET(request: NextRequest) {
     .map((stats) => ({ retailer: stats.label, count: stats.count, volume: stats.volume.toFixed(2) }))
     .sort((a, b) => b.count - a.count);
 
-  const reconciliation = await reconcileWithDiscord(from, to, checkouts);
+  const reconciliation = await reconcileWithDiscord(from, to, checkouts, pricingRules);
+  const reconciledProductImages = new Map(
+    reconciliation.configured
+      ? reconciliation.productImages.map((productImage) => [normalizeItemName(productImage.item), productImage.imageUrl])
+      : [],
+  );
 
   // Gap entries count toward top-line totals, the daily chart, and top items too; unresolved
   // ones are keyed/labeled by their raw Discord profile name since there's no matching User
@@ -151,6 +173,11 @@ export async function GET(request: NextRequest) {
   const combinedItemMap = new Map(itemMap);
 
   if (reconciliation.configured) {
+    for (const productImage of reconciliation.productImages) {
+      const itemEntry = combinedItemMap.get(normalizeItemName(productImage.item));
+      if (itemEntry && !itemEntry.imageUrl) itemEntry.imageUrl = productImage.imageUrl;
+    }
+
     for (const gap of reconciliation.gaps) {
       const parsedPrice = gap.price === "unknown" ? null : Number(gap.price);
       const price = parsedPrice ?? 0;
@@ -175,7 +202,8 @@ export async function GET(request: NextRequest) {
 
       const itemQuantity = parseItemQuantity(gap.quantity);
       const itemName = normalizeItemName(gap.item);
-      const itemEntry = combinedItemMap.get(itemName) ?? { count: 0, volume: 0, pricedCount: 0 };
+      const itemEntry = combinedItemMap.get(itemName) ?? { count: 0, volume: 0, pricedCount: 0, imageUrl: gap.imageUrl };
+      if (!itemEntry.imageUrl && gap.imageUrl) itemEntry.imageUrl = gap.imageUrl;
       const eliteTrainerBox = isEliteTrainerBox(gap.item);
       itemEntry.count += itemQuantity;
       itemEntry.volume += price * (eliteTrainerBox ? 1 : itemQuantity);
@@ -199,11 +227,12 @@ export async function GET(request: NextRequest) {
   const byItem = Array.from(combinedItemMap.entries())
     .map(([item, stats]) => ({
       item,
+      imageUrl: stats.imageUrl,
       count: stats.count,
       pricedCount: stats.pricedCount,
       volume: stats.volume.toFixed(2),
     }))
-    .sort((a, b) => b.count - a.count)
+    .sort((a, b) => Number(b.volume) - Number(a.volume))
     .slice(0, 20);
 
   const topBuyers = Array.from(combinedBuyerMap.entries())
@@ -231,7 +260,13 @@ export async function GET(request: NextRequest) {
     topBuyers,
     recent: checkouts.slice(0, 50).map((checkout) => ({
       ...checkout,
-      price: checkout.price.toString(),
+      imageUrl: reconciledProductImages.get(normalizeItemName(checkout.item)) ?? null,
+      price: (
+        Number(checkout.price) > 0
+          ? Number(checkout.price)
+          : (resolveDropSummaryPrice(checkout.item, checkout.retailer, pricingRules) ?? 0) *
+            parseItemQuantity(checkout.qtyLabel)
+      ).toFixed(2),
       user: checkout.user,
       acoAccount: checkout.acoAccount,
     })),
@@ -243,8 +278,11 @@ type CheckoutForMatch = {
   acoAccountId: string | null;
   userId: string;
   item: string;
+  qtyLabel: string;
+  retailer: string;
   price: unknown;
   occurredAt: Date;
+  imageUrl?: string | null;
 };
 
 function isAlreadyRecorded(
@@ -252,6 +290,7 @@ function isAlreadyRecorded(
   matchedAcoAccountId: string | null,
   matchedUserId: string | null,
   checkouts: CheckoutForMatch[],
+  pricingRules: DropSummaryPricingRule[],
 ): boolean {
   return checkouts.some((checkout) => {
     if (matchedAcoAccountId && checkout.acoAccountId !== matchedAcoAccountId) {
@@ -263,8 +302,19 @@ function isAlreadyRecorded(
     if (normalizeItemName(checkout.item).toLowerCase() !== normalizeItemName(message.item).toLowerCase()) {
       return false;
     }
-    if (message.price !== null && Math.abs(Number(checkout.price) - message.price) > PRICE_MATCH_EPSILON) {
-      return false;
+    if (message.price !== null && message.price > 0) {
+      const checkoutPrice =
+        Number(checkout.price) > 0
+          ? Number(checkout.price)
+          : resolveDropSummaryOrderPrice(
+              checkout.item,
+              checkout.retailer,
+              parseItemQuantity(checkout.qtyLabel),
+              pricingRules,
+            );
+      if (checkoutPrice === null || Math.abs(checkoutPrice - message.price) > PRICE_MATCH_EPSILON) {
+        return false;
+      }
     }
     return Math.abs(checkout.occurredAt.getTime() - message.occurredAt.getTime()) <= MATCH_WINDOW_MS;
   });
@@ -272,7 +322,12 @@ function isAlreadyRecorded(
 
 // Reads the #success channel for the same range and flags checkouts that never made it
 // into the database (e.g. the profile name didn't match a registered ACO account).
-async function reconcileWithDiscord(from: Date, to: Date, checkouts: CheckoutForMatch[]) {
+async function reconcileWithDiscord(
+  from: Date,
+  to: Date,
+  checkouts: CheckoutForMatch[],
+  pricingRules: DropSummaryPricingRule[],
+) {
   const { messages, scanned, error } = await fetchDiscordSuccessMessages(from, to);
 
   if (error === "not_configured") {
@@ -292,6 +347,17 @@ async function reconcileWithDiscord(from: Date, to: Date, checkouts: CheckoutFor
       })
     : [];
   const accountByProfile = new Map(accounts.map((account) => [account.botProfileName, account]));
+  const unmappedBuyer = await prisma.user.findUnique({
+    where: { discordId: UNMAPPED_BUYER_DISCORD_ID },
+    select: { id: true, username: true },
+  });
+  const productImages = new Map<string, { item: string; imageUrl: string }>();
+  for (const message of messages) {
+    if (message.imageUrl) {
+      const item = normalizeItemName(message.item);
+      if (!productImages.has(item)) productImages.set(item, { item, imageUrl: message.imageUrl });
+    }
+  }
 
   const usernameResolutionCache = new Map<string, string | null>();
   const gaps: Array<{
@@ -299,6 +365,7 @@ async function reconcileWithDiscord(from: Date, to: Date, checkouts: CheckoutFor
     occurredAt: string;
     profile: string;
     item: string;
+    imageUrl: string | null;
     quantity: string;
     price: string;
     retailer: string | null;
@@ -338,23 +405,34 @@ async function reconcileWithDiscord(from: Date, to: Date, checkouts: CheckoutFor
       }
     }
 
-    if (isAlreadyRecorded(message, account?.id ?? null, userId, checkouts)) {
+    if (isAlreadyRecorded(message, account?.id ?? null, userId, checkouts, pricingRules)) {
       matchedInDatabase += 1;
       continue;
     }
 
+    const gapUserId = userId ?? unmappedBuyer?.id ?? null;
+    const gapUsername = username ?? (userId ? null : unmappedBuyer?.username) ?? null;
+
+    const messagePrice = message.price !== null && message.price > 0 ? message.price : null;
+    const backfilledPrice = resolveDropSummaryOrderPrice(
+      message.item,
+      account?.retailer ?? "",
+      parseItemQuantity(message.quantity),
+      pricingRules,
+    );
     gaps.push({
       messageId: message.messageId,
       occurredAt: message.occurredAt.toISOString(),
       profile: message.profile,
       item: message.item,
+      imageUrl: message.imageUrl,
       quantity: message.quantity,
-      price: message.price?.toFixed(2) ?? "unknown",
+      price: (messagePrice ?? backfilledPrice)?.toFixed(2) ?? "unknown",
       retailer: account?.retailer ?? null,
-      userId,
+      userId: gapUserId,
       // Fall back to the raw Discord profile name so every gap has a displayable buyer.
-      username: username ?? message.profile,
-      resolved: Boolean(userId),
+      username: gapUsername ?? message.profile,
+      resolved: Boolean(gapUserId),
     });
   }
 
@@ -378,5 +456,6 @@ async function reconcileWithDiscord(from: Date, to: Date, checkouts: CheckoutFor
     resolvedGapCount: gaps.filter((gap) => gap.resolved).length,
     unresolvedGapCount: gaps.filter((gap) => !gap.resolved).length,
     gaps: gaps.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)),
+    productImages: Array.from(productImages.values()),
   };
 }
