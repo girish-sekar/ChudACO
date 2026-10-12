@@ -82,7 +82,7 @@ export default function AdminDashboard() {
   const [selectedRetailers, setSelectedRetailers] = useState<string[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [accountSearch, setAccountSearch] = useState("");
-  const [exportingCategory, setExportingCategory] = useState<"hayha" | "stellar" | "valor" | "valor-imap" | "shikari-accounts" | "shikari-imap" | null>(null);
+  const [exportingCategory, setExportingCategory] = useState<"hayha" | "stellar" | "valor" | "valor-imap" | "shikari-accounts" | "shikari-imap" | "shikari-profiles" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [pricingForm, setPricingForm] = useState<PricingRuleFormState>(defaultPricingRuleForm);
   const [pricingStatus, setPricingStatus] = useState<string | null>(null);
@@ -292,8 +292,8 @@ export default function AdminDashboard() {
     }
   }
 
-  async function exportShikari(mode: "accounts" | "imap") {
-    setExportingCategory(mode === "imap" ? "shikari-imap" : "shikari-accounts");
+  async function exportShikari(mode: "accounts" | "imap" | "profiles") {
+    setExportingCategory(`shikari-${mode}`);
     setExportError(null);
 
     try {
@@ -309,17 +309,19 @@ export default function AdminDashboard() {
         throw new Error(payload?.error ?? "Shikari export failed.");
       }
       const blob = await response.blob();
-      if (blob.size === 0 || (mode === "imap" && (await blob.text()).trim() === "imap_server,port,username,password")) {
-        throw new Error(`No enabled retailer accounts with complete ${mode === "imap" ? "IMAP" : "retailer login"} credentials matched the Shikari export filters.`);
+      if (blob.size === 0 || (mode !== "accounts" && !(await blob.text()).includes("\r\n"))) {
+        throw new Error("No enabled retailer accounts matched the Shikari export filters with the required details.");
       }
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = mode === "imap" ? "shikari-imap.csv" : "shikari-accounts.txt";
+      anchor.download = mode === "accounts" ? "shikari-accounts.txt" : `shikari-${mode}.csv`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
+      const warning = response.headers.get("X-Export-Warning");
+      if (warning) setExportError(decodeURIComponent(warning));
     } catch (error) {
       setExportError(error instanceof Error ? error.message : "Shikari export failed.");
     } finally {
@@ -556,90 +558,135 @@ export default function AdminDashboard() {
           <h1 className="font-heading text-3xl font-bold">Admin</h1>
           <p className="mt-1 text-sm text-[#9C9AAE]">Cross-user checkout, billing, and export controls.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={exportCsv}
-            className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
+            className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
           >
+            <Download size={16} aria-hidden="true" className="shrink-0" />
             Export data (CSV)
           </button>
+      </header>
+
+      <section aria-label="Bot provider exports" className="grid min-w-0 grid-cols-1 gap-6 border-y border-[#2C2D3A] py-4 sm:grid-cols-2 xl:grid-cols-4">
+        <fieldset className="min-w-0">
+          <legend className="mb-3 text-sm font-semibold text-[#F2F1F6]">Hayha</legend>
+          <div className="flex flex-wrap gap-2">
           <button
             type="button"
+            aria-label="Export Hayha accounts as TXT"
             onClick={() => void exportAccountsTxt("hayha")}
             disabled={exportingCategory !== null}
             className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
           >
-            {exportingCategory === "hayha" ? "Exporting Hayha..." : "Export Hayha (.txt)"}
+            {exportingCategory === "hayha" ? "Exporting..." : "Accounts (.txt)"}
           </button>
           <button
             type="button"
+            aria-label="Export Hayha profile as JSON"
+            onClick={() => void exportHayhaJson()}
+            className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
+          >
+            Profile (.json)
+          </button>
+          </div>
+        </fieldset>
+
+        <fieldset className="min-w-0">
+          <legend className="mb-3 text-sm font-semibold text-[#F2F1F6]">Stellar</legend>
+          <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            aria-label="Export Stellar accounts as TXT"
             onClick={() => void exportAccountsTxt("stellar")}
             disabled={exportingCategory !== null}
             className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
           >
-            {exportingCategory === "stellar" ? "Exporting Stellar..." : "Export Stellar (.txt)"}
+            {exportingCategory === "stellar" ? "Exporting..." : "Accounts (.txt)"}
           </button>
           <button
             type="button"
+            aria-label="Export Stellar profile as JSON"
+            onClick={() => void exportStellarJson()}
+            className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
+          >
+            Profile (.json)
+          </button>
+          </div>
+        </fieldset>
+
+        <fieldset className="min-w-0">
+          <legend className="mb-3 text-sm font-semibold text-[#F2F1F6]">Valor</legend>
+          <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            aria-label="Export Valor accounts as TXT"
             onClick={() => void exportAccountsTxt("valor", "default")}
             disabled={exportingCategory !== null || selectedRetailers.length === 0}
             className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
           >
-            {exportingCategory === "valor" ? "Exporting Valor accounts..." : "Valor Accounts (.txt)"}
+            {exportingCategory === "valor" ? "Exporting..." : "Accounts (.txt)"}
           </button>
           <button
             type="button"
+            aria-label="Export Valor IMAP as TXT"
             onClick={() => void exportAccountsTxt("valor", "imap")}
             disabled={exportingCategory !== null || selectedRetailers.length === 0}
             className="rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-[#F2F1F6] disabled:opacity-60"
           >
-            {exportingCategory === "valor-imap" ? "Exporting Valor IMAP..." : "Valor IMAP (.txt)"}
+            {exportingCategory === "valor-imap" ? "Exporting..." : "IMAP (.txt)"}
           </button>
           <button
             type="button"
-            onClick={() => void exportHayhaJson()}
-            className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
-          >
-            Export Hayha Accounts (.json)
-          </button>
-          <button
-            type="button"
-            onClick={() => void exportStellarJson()}
-            className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
-          >
-            Export Stellar Accounts (.json)
-          </button>
-          <button
-            type="button"
+            aria-label="Export Valor profile as JSON"
             onClick={() => void exportValorJson()}
             disabled={selectedRetailers.length === 0}
             className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Export Valor Accounts (.json)
+            Profile (.json)
           </button>
+          </div>
+        </fieldset>
+
+        <fieldset className="min-w-0">
+          <legend className="mb-3 text-sm font-semibold text-[#F2F1F6]">Shikari</legend>
+          <div className="flex flex-wrap gap-2">
           <button
             type="button"
+            aria-label="Export Shikari accounts as TXT"
             onClick={() => void exportShikari("accounts")}
             disabled={exportingCategory !== null}
             title={`Download Shikari retailer logins for ${selectedRetailers.join(", ") || "Target"}`}
             className="inline-flex items-center gap-2 rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6] disabled:opacity-60"
           >
             <Download size={16} aria-hidden="true" className="shrink-0" />
-            {exportingCategory === "shikari-accounts" ? "Exporting Shikari..." : "Shikari Accounts (.txt)"}
+            {exportingCategory === "shikari-accounts" ? "Exporting..." : "Accounts (.txt)"}
           </button>
           <button
             type="button"
+            aria-label="Export Shikari IMAP as CSV"
             onClick={() => void exportShikari("imap")}
             disabled={exportingCategory !== null}
             title={`Download Shikari IMAP credentials for ${selectedRetailers.join(", ") || "Target"}`}
             className="inline-flex items-center gap-2 rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6] disabled:opacity-60"
           >
             <Download size={16} aria-hidden="true" className="shrink-0" />
-            {exportingCategory === "shikari-imap" ? "Exporting Shikari..." : "Shikari IMAP (.csv)"}
+            {exportingCategory === "shikari-imap" ? "Exporting..." : "IMAP (.csv)"}
           </button>
-        </div>
-      </header>
+          <button
+            type="button"
+            aria-label="Export Shikari profiles as CSV"
+            onClick={() => void exportShikari("profiles")}
+            disabled={exportingCategory !== null}
+            title={`Download Shikari profiles for ${selectedRetailers.join(", ") || "Target"}`}
+            className="inline-flex items-center gap-2 rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6] disabled:opacity-60"
+          >
+            <Download size={16} aria-hidden="true" className="shrink-0" />
+            {exportingCategory === "shikari-profiles" ? "Exporting..." : "Profiles (.csv)"}
+          </button>
+          </div>
+        </fieldset>
+      </section>
 
       <section className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
         <p className="text-sm text-[#9C9AAE]">Retailer filter (TXT and Shikari exports)</p>

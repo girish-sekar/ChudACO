@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
-import { CircleCheck, CircleX, Copy, Download, FileUp, LoaderCircle, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
+import { ChevronRight, CircleCheck, CircleX, ContactRound, Copy, CreditCard, Download, Eye, EyeOff, FileUp, KeyRound, Link2, LoaderCircle, LockKeyhole, Mail, MapPin, Pencil, Plus, Search, Settings2, Store, Trash2, Upload, X } from "lucide-react";
+import styles from "./modular-workspace.module.css";
 import { CARD_BRAND_OPTIONS } from "@/lib/card-brand";
 import { EMAIL_PROVIDER_HOSTS, imapHostForProvider } from "@/lib/email-providers";
 import {
@@ -20,6 +21,7 @@ type LibrarySection = Exclude<Section, "accounts">;
 type CsvRow = Record<string, string>;
 type ImportState = { rows: CsvRow[]; error: string | null; fileName: string };
 type Editor = { section: Section; id: string | null };
+type EditorTab = "account" | "logins" | "links";
 type LoginDraft = { retailer: string; loginEmail: string; loginPassword: string; enabled: boolean };
 type LinkDraft = { profileId: string; cardId: string; imapConfigId: string; retailerCards: Record<string, string>; retailerProfiles: Record<string, string> };
 type LinkKey = Exclude<keyof LinkDraft, "retailerCards" | "retailerProfiles">;
@@ -62,7 +64,7 @@ const csvExamples: Record<Section, string[]> = {
 };
 
 const sectionLabels: Record<Section, string> = {
-  accounts: "Account info",
+  accounts: "Accounts",
   profiles: "Profiles",
   cards: "Cards",
   imap: "IMAP",
@@ -75,12 +77,7 @@ const itemLabels: Record<Section, string> = {
   imap: "IMAP inbox",
 };
 
-const sectionDescriptions: Record<Section, string> = {
-  accounts: "Link each account to a profile, a default card, optional per-retailer cards, and an IMAP inbox. CSV rows reference an existing account by accountNumber; link columns use profile name, card name, and inbox email, and retailerCardName applies to that row's retailer.",
-  profiles: "Reusable shipping and billing details. Link them to accounts from Account info.",
-  cards: "Reusable payment cards. Link them to accounts from Account info.",
-  imap: "Reusable IMAP inboxes. Link them to accounts from Account info.",
-};
+const sectionIcons = { accounts: ContactRound, profiles: MapPin, cards: CreditCard, imap: Mail };
 
 const libraryEndpoints: Record<LibrarySection, string> = {
   profiles: "/api/aco-profiles",
@@ -222,6 +219,7 @@ function linkedAccountsLabel(accounts: LinkedAccountRef[]): string {
 }
 
 function cardSummary(card: AcoCardEntry): string {
+  if (card.label.includes(card.last4)) return card.label;
   return `${card.label} · ${card.cardBrand} ···· ${card.last4}`;
 }
 
@@ -272,12 +270,18 @@ export function ModularAccountsWorkspace({
   const libraryError = Boolean(profilesError || cardsError || imapError);
 
   const [section, setSection] = useState<Section>("accounts");
+  const [search, setSearch] = useState("");
+  const [retailerFilter, setRetailerFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [visiblePasswords, setVisiblePasswords] = useState<Set<number>>(new Set());
   const [importState, setImportState] = useState<ImportState>({ rows: [], error: null, fileName: "" });
   const [importing, setImporting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [editorTab, setEditorTab] = useState<EditorTab>("account");
+  const [editorDirty, setEditorDirty] = useState(false);
   const [savingEditor, setSavingEditor] = useState(false);
   const [loginDrafts, setLoginDrafts] = useState<LoginDraft[]>([]);
   const [linkDraft, setLinkDraft] = useState<LinkDraft>({ profileId: "", cardId: "", imapConfigId: "", retailerCards: {}, retailerProfiles: {} });
@@ -287,6 +291,19 @@ export function ModularAccountsWorkspace({
   const [testingImapId, setTestingImapId] = useState<string | null>(null);
   const [imapTestResults, setImapTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
   const fileRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!editor) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialogRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [editor]);
 
   const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
   const cardById = new Map(cards.map((card) => [card.id, card]));
@@ -369,6 +386,9 @@ export function ModularAccountsWorkspace({
 
   function selectSection(next: Section) {
     setSection(next);
+    setSearch("");
+    setRetailerFilter("");
+    setStatusFilter("");
     setImportState({ rows: [], error: null, fileName: "" });
     setStatus(null);
     setActionError(null);
@@ -377,6 +397,9 @@ export function ModularAccountsWorkspace({
 
   function openEditor(nextSection: Section, id?: string | null) {
     setEditor({ section: nextSection, id: id ?? null });
+    setEditorTab("account");
+    setEditorDirty(!id);
+    setVisiblePasswords(new Set());
     setEditorError(null);
     setStatus(null);
     setActionError(null);
@@ -397,7 +420,14 @@ export function ModularAccountsWorkspace({
   }
 
   function updateLoginDraft(index: number, field: keyof LoginDraft, value: string | boolean) {
+    setEditorDirty(true);
     setLoginDrafts((current) => current.map((login, entryIndex) => entryIndex === index ? { ...login, [field]: value } : login));
+  }
+
+  function closeEditor() {
+    if (savingEditor) return;
+    if (editorDirty && !window.confirm("Discard unsaved changes?")) return;
+    setEditor(null);
   }
 
   async function testImapConnection(config: AcoImapConfigEntry) {
@@ -509,6 +539,13 @@ export function ModularAccountsWorkspace({
   async function submitEditor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editor) return;
+    if (!event.currentTarget.checkValidity()) {
+      const invalidField = event.currentTarget.querySelector<HTMLInputElement | HTMLSelectElement>(":invalid");
+      const panel = invalidField?.closest<HTMLElement>("[data-editor-panel]");
+      if (panel) setEditorTab(panel.dataset.editorPanel as EditorTab);
+      requestAnimationFrame(() => invalidField?.reportValidity());
+      return;
+    }
     const formData = new FormData(event.currentTarget);
     const value = (name: string) => String(formData.get(name) ?? "").trim();
     const nullable = (name: string) => value(name) || null;
@@ -874,13 +911,13 @@ export function ModularAccountsWorkspace({
 
   const notLinked = <span className="text-[#FFDB79]">Not linked</span>;
   const thClass = "bg-[#18181F] px-3 py-3 text-xs font-medium text-[#9C9AAE]";
-  const iconButtonClass = "rounded border border-[#2C2D3A] p-2 text-[#9C9AAE] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
+  const iconButtonClass = "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-transparent text-[#9C9AAE] hover:border-[#2C2D3A] hover:bg-[#101014] hover:text-white disabled:cursor-not-allowed disabled:opacity-40";
 
   function libraryActions(kind: LibrarySection, id: string, name: string, linkedCount: number) {
     const profile = kind === "profiles" ? profiles.find((entry) => entry.id === id) : undefined;
     return (
       <div className="flex gap-2">
-        <button type="button" aria-label={`Edit ${name}`} onClick={() => openEditor(kind, id)} className={iconButtonClass}><Pencil className="h-4 w-4" /></button>
+        <button type="button" aria-label={`Edit ${name}`} title="Edit" onClick={() => openEditor(kind, id)} className={iconButtonClass}><Pencil className="h-4 w-4" /></button>
         {profile ? (
           <button
             type="button"
@@ -911,26 +948,32 @@ export function ModularAccountsWorkspace({
     return linked.length ? linkedAccountsLabel(linked) : <span className="text-[#605E72]">None</span>;
   }
 
-  const emptyMessage = section === "accounts"
-    ? accounts.length === 0 ? "No accounts to display." : null
-    : section === "profiles"
-      ? profiles.length === 0 ? "No profiles yet." : null
-      : section === "cards"
-        ? cards.length === 0 ? "No cards yet." : null
-        : imapConfigs.length === 0 ? "No IMAP inboxes yet." : null;
+  const attentionAccountIds = new Set(setupIssues.map((issue) => issue.account.id));
+  const matchesSearch = (...values: Array<string | null | undefined>) => values.filter(Boolean).join(" ").toLowerCase().includes(search.trim().toLowerCase());
+  const filteredAccounts = accounts.filter((account) =>
+    matchesSearch(account.label, account.botProfileName, String(account.accountNumber), account.email, ...account.retailerLogins.flatMap((login) => [login.retailer, login.loginEmail])) &&
+    (!retailerFilter || (account.retailerLogins.length ? account.retailerLogins : [{ retailer: account.retailer }]).some((login) => login.retailer.toLowerCase() === retailerFilter.toLowerCase())) &&
+    (!statusFilter || (statusFilter === "attention" ? attentionAccountIds.has(account.id) : account.status === statusFilter)),
+  );
+  const filteredProfiles = profiles.filter((profile) => matchesSearch(profile.name, profile.shippingName, profile.shippingCity, profile.shippingState, profile.shippingZip, profile.shippingAddr));
+  const filteredCards = cards.filter((card) => matchesSearch(card.label, card.cardBrand, card.last4, card.cardholderName));
+  const filteredImap = imapConfigs.filter((config) => matchesSearch(config.email, config.emailProvider, config.imapHost));
+  const sectionCounts = { accounts: accounts.length, profiles: profiles.length, cards: cards.length, imap: imapConfigs.length };
+  const filteredCounts = { accounts: filteredAccounts.length, profiles: filteredProfiles.length, cards: filteredCards.length, imap: filteredImap.length };
+  const emptyMessage = filteredCounts[section] === 0 ? sectionCounts[section] ? "No matching records." : `No ${section === "imap" ? "IMAP inboxes" : section} yet.` : null;
   const pokemonCenterUsagePercent = maxPokemonCenterProfiles > 0
     ? Math.min(100, (totalPokemonCenterProfiles / maxPokemonCenterProfiles) * 100)
     : 0;
   const pokemonCenterSlotsRemaining = Math.max(0, managedPokemonCenterLimit - managedPokemonCenterProfiles);
 
   return (
-    <div className="space-y-6">
+    <div className={`${styles.workspace} space-y-6`}>
       <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="font-heading text-3xl font-bold">Account management</h1>
-          <p className="mt-1 text-sm text-[#9C9AAE]">Create profiles, cards, and IMAP inboxes once, then link them to accounts from Account info.</p>
+          <h1 className="font-heading text-2xl font-semibold sm:text-3xl">Accounts</h1>
+          <div className="mt-3 flex flex-wrap gap-4 text-xs text-[#9C9AAE]"><span>{accounts.length} accounts</span><span className="border-l border-[#2C2D3A] pl-4">{accounts.length - attentionAccountIds.size} complete</span>{attentionAccountIds.size > 0 ? <span className="border-l border-[#2C2D3A] pl-4 text-[#FFDB79]">{attentionAccountIds.size} need attention</span> : null}</div>
           {!loading ? (
-            <div className="mt-4 w-full max-w-xl space-y-2.5" aria-label="Pokémon Center profile capacity">
+            <div className="mt-5 w-full max-w-sm space-y-2" aria-label="Pokémon Center profile capacity">
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <p className="text-sm font-semibold text-[#DDF8FF]">Pokémon Center profiles</p>
                 <p className="font-heading text-lg font-bold tabular-nums text-white">
@@ -938,7 +981,7 @@ export function ModularAccountsWorkspace({
                 </p>
               </div>
               <div
-                className="h-3.5 overflow-hidden rounded-full bg-[#202737] ring-1 ring-[#7085A8]/40"
+                className="h-1.5 overflow-hidden rounded-full bg-[#202737]"
                 role="progressbar"
                 aria-label="Pokémon Center profiles used"
                 aria-valuemin={0}
@@ -947,7 +990,7 @@ export function ModularAccountsWorkspace({
                 aria-valuetext={`${totalPokemonCenterProfiles} of ${maxPokemonCenterProfiles} profiles used`}
               >
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-[#26D9FF] via-[#4788FF] to-[#45F0B5] shadow-[0_0_18px_rgba(38,217,255,0.55)] transition-[width] duration-700 ease-out"
+                  className="h-full rounded-full bg-[#2F5BFF] transition-[width] duration-700 ease-out"
                   style={{ width: `${pokemonCenterUsagePercent}%` }}
                 />
               </div>
@@ -960,13 +1003,13 @@ export function ModularAccountsWorkspace({
       </header>
 
       {!loading && !loadError && librariesLoaded ? (
-        <section aria-labelledby="setup-readiness-title" className={`rounded-md border p-4 ${setupIssues.length ? "border-[#FFCB3C]/40 bg-[#241F11]" : "border-[#4ADE80]/30 bg-[#102119]"}`}>
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 id="setup-readiness-title" className="font-heading text-base font-semibold">Setup readiness</h2>
+        <details className="border-y border-[#2C2D3A] py-3">
+          <summary className="flex cursor-pointer flex-wrap items-baseline justify-between gap-2">
+            <span className="text-sm font-medium">Setup readiness</span>
             <p className={`text-xs ${setupIssues.length ? "text-[#FFDB79]" : "text-[#4ADE80]"}`}>
               {setupIssues.length ? `${setupIssues.length} item${setupIssues.length === 1 ? "" : "s"} need attention` : "All linked setup details are complete"}
             </p>
-          </div>
+          </summary>
           {setupIssues.length ? (
             <ul className="mt-3 divide-y divide-[#3A3320]">
               {setupIssues.map((issue, index) => (
@@ -979,52 +1022,46 @@ export function ModularAccountsWorkspace({
               ))}
             </ul>
           ) : null}
-        </section>
+        </details>
       ) : null}
 
-      <nav aria-label="Account sections" className="flex flex-wrap gap-2 border-b border-[#2C2D3A] pb-3">
-        {(Object.keys(sectionLabels) as Section[]).map((key) => (
-          <button key={key} type="button" aria-pressed={section === key} onClick={() => selectSection(key)} className={`rounded-md px-3 py-2 text-sm ${section === key ? "bg-[#2F5BFF] text-white" : "text-[#9C9AAE] hover:bg-[#18181F] hover:text-[#F2F1F6]"}`}>
-            {sectionLabels[key]}
-          </button>
-        ))}
+      <nav aria-label="Account sections" role="tablist" className={styles.sectionTabs}>
+        {(Object.keys(sectionLabels) as Section[]).map((key) => {
+          const Icon = sectionIcons[key];
+          return <button key={key} id={`workspace-tab-${key}`} type="button" role="tab" aria-selected={section === key} aria-controls="account-workspace-panel" tabIndex={section === key ? 0 : -1} onClick={() => selectSection(key)} onKeyDown={(event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+            event.preventDefault(); const keys = Object.keys(sectionLabels) as Section[];
+            const next = event.key === "Home" ? keys[0] : event.key === "End" ? keys.at(-1)! : keys[(keys.indexOf(key) + (event.key === "ArrowRight" ? 1 : -1) + keys.length) % keys.length];
+            selectSection(next); document.getElementById(`workspace-tab-${next}`)?.focus();
+          }}><Icon aria-hidden="true" className="h-4 w-4" />{sectionLabels[key]}<span>{sectionCounts[key]}</span></button>;
+        })}
       </nav>
 
-      <section className="space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="font-heading text-xl font-semibold">{sectionLabels[section]}</h2>
-            <p className="mt-1 text-xs text-[#9C9AAE]">{sectionDescriptions[section]}</p>
-            <p className="mt-1 text-xs text-[#605E72]">The template includes an example row. Replace every REPLACE_ME value before importing.</p>
+      <section id="account-workspace-panel" role="tabpanel" aria-labelledby={`workspace-tab-${section}`} className="space-y-4">
+        <div className={styles.toolbar}>
+          <div className={styles.filters}>
+            <label className={styles.search}><Search aria-hidden="true" className="h-4 w-4 shrink-0" /><input type="search" aria-label={`Search ${sectionLabels[section]}`} placeholder={`Search ${section === "imap" ? "inboxes" : section}...`} value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+            {section === "accounts" ? <><select aria-label="Retailer filter" value={retailerFilter} onChange={(event) => setRetailerFilter(event.target.value)}><option value="">All retailers</option>{retailerChoices.map((retailer) => <option key={retailer} value={retailer}>{retailer}</option>)}</select><select aria-label="Status filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="">All statuses</option><option value="active">Active</option><option value="locked">Locked</option><option value="banned">Banned</option><option value="attention">Needs attention</option></select></> : null}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => openEditor(section)} className="inline-flex items-center gap-2 rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-white hover:bg-[#2448D8]">
-              <Plus aria-hidden="true" className="h-4 w-4" />
-              Add {itemLabels[section].toLowerCase()}
-            </button>
+          <div className={styles.toolbarActions}>
             {section === "cards" ? (
               <button type="button" disabled={importingCards} onClick={() => void importExistingCards()} className="inline-flex items-center gap-2 rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6] disabled:opacity-60">
                 {importingCards ? <LoaderCircle aria-hidden="true" className="h-4 w-4 animate-spin" /> : <Upload aria-hidden="true" className="h-4 w-4" />}
                 Import existing account cards
               </button>
             ) : null}
-            <button type="button" onClick={() => downloadTemplate(section)} className="inline-flex items-center gap-2 rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]">
-              <Download aria-hidden="true" className="h-4 w-4" /> Template
+            <button type="button" aria-label="Download CSV template" title="Download CSV template. Replace the REPLACE_ME example values before importing." onClick={() => downloadTemplate(section)} className={iconButtonClass}>
+              <Download aria-hidden="true" className="h-4 w-4" />
             </button>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-white hover:bg-[#2448D8]">
-              <FileUp aria-hidden="true" className="h-4 w-4" /> Upload CSV
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-white focus-within:ring-2 focus-within:ring-[#2F5BFF]">
+              <FileUp aria-hidden="true" className="h-4 w-4" /> Import CSV
               <input ref={fileRef} type="file" accept=".csv,text/csv" className="sr-only" onChange={(event) => void handleFile(event.target.files?.[0])} />
             </label>
+            <button type="button" onClick={() => openEditor(section)} className="inline-flex items-center gap-2 rounded-md bg-[#2F5BFF] px-3 py-2 text-sm font-medium text-white hover:bg-[#2448D8]">
+              <Plus aria-hidden="true" className="h-4 w-4" />Add {itemLabels[section].toLowerCase()}
+            </button>
           </div>
         </div>
-
-        {section === "cards" || section === "imap" ? (
-          <p className="rounded-md border border-[#FFCB3C]/30 bg-[#2B2411] px-3 py-2 text-xs text-[#FFDB79]">
-            {section === "cards"
-              ? "Card values are sent to the configured secure relay. Full card numbers and CVVs are not stored in the database."
-              : "Passwords are encrypted before being saved. Leave password blank to keep the current password."}
-          </p>
-        ) : null}
 
         {status ? <p role="status" className="text-sm text-[#4ADE80]">{status}</p> : null}
         {actionError ? <p role="alert" className="text-sm text-[#FF5D5D]">{actionError}</p> : null}
@@ -1033,25 +1070,41 @@ export function ModularAccountsWorkspace({
         {importState.error ? <pre role="alert" className="whitespace-pre-wrap rounded-md border border-[#FF5D5D]/30 bg-[#2A1317] p-3 text-xs text-[#FFC0C0]">{importState.error}</pre> : null}
 
         {editor ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditor(null); }}>
-            <section role="dialog" aria-modal="true" aria-labelledby="modular-editor-title" className="my-auto max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[#2C2D3A] bg-[#18181F] p-5 shadow-2xl">
-              <div className="mb-4 flex items-start justify-between gap-3">
+          <div className={styles.overlay} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeEditor(); }} onKeyDown={(event) => {
+            if (event.key === "Escape") { event.preventDefault(); closeEditor(); }
+            if (event.key === "Tab") {
+              const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary, [tabindex="0"]') ?? []).filter((control) => control.getClientRects().length > 0);
+              const first = controls[0];
+              const last = controls.at(-1);
+              if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last?.focus(); }
+              else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) { event.preventDefault(); first?.focus(); }
+            }
+          }}>
+            <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="modular-editor-title" className={styles.drawer}>
+              <div className={styles.editorHeader}>
                 <div>
                   <h3 id="modular-editor-title" className="font-heading text-xl font-semibold">{editor.id ? "Edit" : "Add"} {itemLabels[editor.section].toLowerCase()}</h3>
-                  <p className="mt-1 text-xs text-[#9C9AAE]">
-                    {editor.section === "profiles"
-                      ? "Reusable shipping and billing details."
-                      : editor.section === "cards"
-                        ? "Full card details are sent to the configured secure relay; only masked details are stored."
-                        : editor.section === "imap"
-                          ? "Leave the password blank to keep the saved password."
-                          : "Retailer credentials are saved through the existing encrypted account API."}
-                  </p>
+                  <p className="mt-2 break-words text-xs text-[#9C9AAE]">{editingAccount ? `#${editingAccount.accountNumber} / ${editingAccount.botProfileName}` : editingProfile?.name ?? editingCard?.label ?? editingImap?.email ?? `New ${itemLabels[editor.section].toLowerCase()}`}</p>
                 </div>
-                <button type="button" aria-label="Close editor" onClick={() => setEditor(null)} className="rounded-md p-2 text-[#9C9AAE] hover:bg-[#101014] hover:text-white"><X className="h-4 w-4" /></button>
+                <button type="button" aria-label="Close editor" title="Close editor" disabled={savingEditor} onClick={closeEditor} className="rounded-md p-2 text-[#9C9AAE] hover:bg-[#101014] hover:text-white"><X className="h-4 w-4" /></button>
               </div>
 
-              <form onSubmit={(event) => void submitEditor(event)} className="space-y-4">
+              {editor.section === "accounts" ? (
+                <nav className={styles.editorTabs} role="tablist" aria-label="Account settings">
+                  {([ ["account", "Account", Settings2], ["logins", "Retailer logins", KeyRound], ["links", "Linked setup", Link2] ] as const).map(([key, label, Icon]) => (
+                    <button key={key} id={`editor-tab-${key}`} type="button" role="tab" aria-selected={editorTab === key} aria-controls={`editor-panel-${key}`} tabIndex={editorTab === key ? 0 : -1} onClick={() => setEditorTab(key)} onKeyDown={(event) => {
+                      const tabs: EditorTab[] = ["account", "logins", "links"];
+                      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                      event.preventDefault();
+                      const next = event.key === "Home" ? tabs[0] : event.key === "End" ? tabs[2] : tabs[(tabs.indexOf(key) + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+                      setEditorTab(next);
+                      document.getElementById(`editor-tab-${next}`)?.focus();
+                    }}><Icon aria-hidden="true" className="h-4 w-4" />{label}{key === "logins" ? <span className="text-xs text-[#605E72]">{loginDrafts.length}</span> : null}</button>
+                  ))}
+                </nav>
+              ) : null}
+              <form noValidate onSubmit={(event) => void submitEditor(event)} onChange={() => setEditorDirty(true)} className={styles.editorForm}>
+                <div className={`${styles.editorBody} space-y-4`}>
                 {editor.section !== "accounts" && editingLinks.length ? (
                   <p className="rounded-md border border-[#2F5BFF]/30 bg-[#111A33] px-3 py-2 text-xs text-[#AFC2FF]">
                     Linked to {editingLinks.join(", ")}. Saving updates every linked account.
@@ -1060,66 +1113,50 @@ export function ModularAccountsWorkspace({
 
                 {editor.section === "accounts" ? (
                   <>
+                    <div data-editor-panel="account" id="editor-panel-account" role="tabpanel" aria-labelledby="editor-tab-account" hidden={editorTab !== "account"} className="space-y-5">
+                    <div className={styles.sectionHeading}><h4>Account settings</h4>{editingAccount ? <span className={styles.statusBadge} data-state={editingAccount.status}>{editingAccount.status}</span> : null}</div>
                     {field("Account label", "label", editingAccount?.label ?? "", "text", true)}
-                    <label className="flex items-center gap-2 text-sm text-[#9C9AAE]"><input type="checkbox" name="onlyOneCheckout" defaultChecked={editingAccount?.onlyOneCheckout ?? true} />Only one checkout</label>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between"><h4 className="text-sm font-medium">Retailer logins</h4><button type="button" onClick={() => setLoginDrafts((current) => [...current, { retailer: "", loginEmail: "", loginPassword: "", enabled: true }])} className="rounded border border-[#2C2D3A] px-2 py-1 text-xs text-[#9C9AAE] hover:text-white">Add retailer login</button></div>
+                    <label className={styles.checkoutSetting}><span>Only one checkout</span><input className={styles.switch} type="checkbox" name="onlyOneCheckout" defaultChecked={editingAccount?.onlyOneCheckout ?? true} /></label>
+                    <div className={styles.summaryLinks}><p>Default setup</p>{([
+                      ["Shipping profile", MapPin, profileById.get(linkDraft.profileId)?.name ?? "Not linked"],
+                      ["Payment card", CreditCard, cardById.get(linkDraft.cardId) ? cardSummary(cardById.get(linkDraft.cardId)!) : editingAccount && cardByAccount[editingAccount.id] ? `Card ending in ${cardByAccount[editingAccount.id]?.last4 ?? "----"} (not from library)` : "Not linked"],
+                      ["IMAP inbox", Mail, imapById.get(linkDraft.imapConfigId)?.email ?? "Not linked"],
+                    ] as const).map(([label, Icon, value]) => <button key={label} type="button" onClick={() => setEditorTab("links")}><Icon aria-hidden="true" className="h-4 w-4" /><div><small>{label}</small><span>{value}</span></div><ChevronRight aria-hidden="true" className="h-4 w-4" /></button>)}</div>
+                    </div>
+                    <div data-editor-panel="logins" id="editor-panel-logins" role="tabpanel" aria-labelledby="editor-tab-logins" hidden={editorTab !== "logins"} className="space-y-2">
+                      <div className={styles.sectionHeading}><h4>Retailer credentials</h4><button type="button" onClick={() => { setEditorDirty(true); setLoginDrafts((current) => [...current, { retailer: "", loginEmail: "", loginPassword: "", enabled: true }]); }} className="inline-flex items-center gap-1.5 rounded-md border border-[#2C2D3A] px-3 py-2 text-xs text-[#9C9AAE] hover:text-white"><Plus aria-hidden="true" className="h-3.5 w-3.5" />Add login</button></div>
                       {loginDrafts.map((login, index) => (
-                        <div key={index} className="grid gap-2 rounded-md border border-[#2C2D3A] p-3 sm:grid-cols-2">
-                          <label className="grid gap-1 text-xs text-[#9C9AAE]"><span>Retailer</span><select required value={login.retailer} onChange={(event) => updateLoginDraft(index, "retailer", event.target.value)} className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]"><option value="">Select retailer</option>{retailerChoices.map((retailer) => <option key={retailer} value={retailer}>{retailer}</option>)}</select></label>
-                          <label className="grid gap-1 text-xs text-[#9C9AAE]"><span>Login email</span><input required type="email" value={login.loginEmail} onChange={(event) => updateLoginDraft(index, "loginEmail", event.target.value)} className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]" /></label>
-                          <label className="grid gap-1 text-xs text-[#9C9AAE]"><span>{editingAccount ? "New password (blank keeps current)" : "Password (optional)"}</span><input type="password" value={login.loginPassword} onChange={(event) => updateLoginDraft(index, "loginPassword", event.target.value)} className="rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]" /></label>
-                          <div className="flex items-end justify-between gap-2"><label className="flex items-center gap-2 pb-2 text-xs text-[#9C9AAE]"><input type="checkbox" checked={login.enabled} onChange={(event) => updateLoginDraft(index, "enabled", event.target.checked)} />Enabled</label>{loginDrafts.length > 1 ? <button type="button" onClick={() => setLoginDrafts((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="pb-2 text-xs text-[#FF9A9A]">Remove</button> : null}</div>
-                        </div>
+                        <article key={index} className={styles.loginRow}>
+                          <div className={styles.loginHeader}><span><Store aria-hidden="true" className="h-4 w-4 text-[#9C9AAE]" />{login.retailer || "New retailer"}</span><div className={styles.loginControls}><label><input className={styles.switch} type="checkbox" checked={login.enabled} onChange={(event) => updateLoginDraft(index, "enabled", event.target.checked)} />Enabled</label>{loginDrafts.length > 1 ? <button type="button" aria-label={`Remove ${login.retailer || "retailer"} login`} title="Remove login" onClick={() => { setEditorDirty(true); setVisiblePasswords(new Set()); setLoginDrafts((current) => current.filter((_, rowIndex) => rowIndex !== index)); }} className={iconButtonClass}><Trash2 className="h-4 w-4" /></button> : null}</div></div>
+                          <div className={styles.loginBody}><div className="grid gap-4 sm:grid-cols-2">
+                            <label className="grid min-w-0 gap-1.5 text-xs text-[#9C9AAE]"><span>Retailer</span><select required value={login.retailer} onChange={(event) => updateLoginDraft(index, "retailer", event.target.value)} className="min-w-0 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]"><option value="">Select retailer</option>{retailerChoices.map((retailer) => <option key={retailer} value={retailer}>{retailer}</option>)}</select></label>
+                            <label className="grid min-w-0 gap-1.5 text-xs text-[#9C9AAE]"><span>Login email</span><input required type="email" autoComplete="off" value={login.loginEmail} onChange={(event) => updateLoginDraft(index, "loginEmail", event.target.value)} className="min-w-0 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]" /></label>
+                          </div><details className={styles.passwordDetails}><summary><LockKeyhole aria-hidden="true" className="h-3.5 w-3.5" />Password<span>{editingAccount ? "Change password" : "Set password"}</span></summary><div className={styles.passwordInput}><label className="grid gap-1.5 text-xs text-[#9C9AAE]"><span>{editingAccount ? "New password (blank keeps current)" : "Password (optional)"}</span><input autoComplete="new-password" type={visiblePasswords.has(index) ? "text" : "password"} value={login.loginPassword} onChange={(event) => updateLoginDraft(index, "loginPassword", event.target.value)} className="min-w-0 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]" /></label><button type="button" aria-label={visiblePasswords.has(index) ? "Hide password" : "Show password"} title={visiblePasswords.has(index) ? "Hide password" : "Show password"} onClick={() => setVisiblePasswords((current) => { const next = new Set(current); if (next.has(index)) next.delete(index); else next.add(index); return next; })}>{visiblePasswords.has(index) ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></div></details></div>
+                        </article>
                       ))}
                     </div>
-                    <div className="space-y-3 rounded-md border border-[#2C2D3A] p-3">
-                      <div>
-                        <h4 className="text-sm font-medium">Linked setup</h4>
-                        <p className="mt-1 text-xs text-[#9C9AAE]">Create profiles, cards, and IMAP inboxes in their tabs, then link them here.</p>
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-3">
-                        {linkSelect("Profile", "profileId", profiles.map((profile) => ({ id: profile.id, label: profile.name })))}
-                        {linkSelect("Default card", "cardId", cards.map((card) => ({ id: card.id, label: cardSummary(card) })))}
-                        {linkSelect("IMAP inbox", "imapConfigId", imapConfigs.map((config) => ({ id: config.id, label: config.email })))}
+                    <div data-editor-panel="links" id="editor-panel-links" role="tabpanel" aria-labelledby="editor-tab-links" hidden={editorTab !== "links"} className="space-y-3">
+                      <div className={styles.sectionHeading}><h4>Default setup</h4></div>
+                      <div className={styles.defaultLinks}>
+                        <div>{linkSelect("Shipping profile", "profileId", profiles.map((profile) => ({ id: profile.id, label: profile.name })))}<p>{[profileById.get(linkDraft.profileId)?.shippingCity, profileById.get(linkDraft.profileId)?.shippingState].filter(Boolean).join(", ") || "Not linked"}</p></div>
+                        <div>{linkSelect("Payment card", "cardId", cards.map((card) => ({ id: card.id, label: cardSummary(card) })))}<p>{cardById.get(linkDraft.cardId) ? `${String(cardById.get(linkDraft.cardId)!.expMonth).padStart(2, "0")}/${cardById.get(linkDraft.cardId)!.expYear}` : "Not linked"}</p></div>
+                        <div>{linkSelect("IMAP inbox", "imapConfigId", imapConfigs.map((config) => ({ id: config.id, label: config.email })))}<p>{imapById.get(linkDraft.imapConfigId) ? `${imapById.get(linkDraft.imapConfigId)!.imapHost}:${imapById.get(linkDraft.imapConfigId)!.imapPort}` : "Not linked"}</p></div>
                       </div>
                       {draftRetailers.length ? (
-                        <div className="space-y-2">
-                          <h5 className="text-xs font-medium text-[#F2F1F6]">Retailer profiles</h5>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            {draftRetailers.map((retailer) => (
-                              <label key={retailer.toLowerCase()} className="grid gap-1 text-xs text-[#9C9AAE]">
-                                <span>{retailer}</span>
-                                <select
-                                  value={draftRetailerProfile(retailer)}
-                                  onChange={(event) => setLinkDraft((draft) => ({
-                                    ...draft,
-                                    retailerProfiles: {
-                                      ...Object.fromEntries(Object.entries(draft.retailerProfiles).filter(([key]) => key.toLowerCase() !== retailer.toLowerCase())),
-                                      [retailer]: event.target.value,
-                                    },
-                                  }))}
-                                  className="min-w-0 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]"
-                                >
-                                  <option value="">Use default profile</option>
-                                  {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-                                </select>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                      {draftRetailers.length ? (
-                        <div className="space-y-2">
-                          <h5 className="text-xs font-medium text-[#F2F1F6]">Retailer cards</h5>
-                          <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="border-t border-[#2C2D3A] pt-6">
+                          <div className={styles.sectionHeading}><h4>Retailer overrides</h4><span className="text-xs text-[#9C9AAE]">Defaults unless specified</span></div>
                             {draftRetailers.map((retailer) => {
                               const current = editingAccount?.retailerCards?.find((card) => card.retailer.toLowerCase() === retailer.toLowerCase());
                               const selected = draftRetailerCard(retailer);
+                              const selectedProfile = profileById.get(draftRetailerProfile(retailer) || linkDraft.profileId);
+                              const selectedCard = cardById.get(selected || linkDraft.cardId);
                               return (
-                                <label key={retailer.toLowerCase()} className="grid gap-1 text-xs text-[#9C9AAE]">
+                                <div key={retailer.toLowerCase()} className={styles.overrideGrid}>
                                   <span>{retailer}</span>
+                                  <label className="grid gap-1.5 text-xs text-[#9C9AAE]"><span>Shipping profile</span><select aria-label={`${retailer} shipping profile`} value={draftRetailerProfile(retailer)} onChange={(event) => setLinkDraft((draft) => ({ ...draft, retailerProfiles: { ...Object.fromEntries(Object.entries(draft.retailerProfiles).filter(([key]) => key.toLowerCase() !== retailer.toLowerCase())), [retailer]: event.target.value } }))} className="min-w-0 rounded-md border border-[#2C2D3A] bg-[#101014] px-3 py-2 text-sm text-[#F2F1F6]"><option value="">Use default profile</option>{profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select><small>{[selectedProfile?.shippingCity, selectedProfile?.shippingState].filter(Boolean).join(", ") || "Not linked"}</small></label>
+                                  <label className="grid gap-1.5 text-xs text-[#9C9AAE]"><span>Payment card</span>
                                   <select
+                                    aria-label={`${retailer} payment card`}
                                     value={selected}
                                     onChange={(event) => setLinkDraft((draft) => ({
                                       ...draft,
@@ -1133,11 +1170,12 @@ export function ModularAccountsWorkspace({
                                     <option value="">{current && !current.cardId ? `Keep current (···· ${current.last4 ?? "----"}, not from library)` : "Use default card"}</option>
                                     {cards.map((card) => <option key={card.id} value={card.id}>{cardSummary(card)}</option>)}
                                   </select>
+                                  <small>{current && !current.cardId && !selected ? `${current.cardBrand ?? "Card"} ···· ${current.last4 ?? "----"}` : selectedCard ? `${selectedCard.cardBrand} ···· ${selectedCard.last4}` : "Not linked"}</small>
                                   {current?.cardId && !selected ? <span className="text-[#FFDB79]">Unlinking removes the {retailer} card; the default card is used instead.</span> : null}
-                                </label>
+                                  </label>
+                                </div>
                               );
                             })}
-                          </div>
                         </div>
                       ) : null}
                       {editingAccount && !editingAccount.cardId && cardByAccount[editingAccount.id] ? (
@@ -1213,10 +1251,12 @@ export function ModularAccountsWorkspace({
                 ) : null}
 
                 {editorError ? <p role="alert" className="rounded-md border border-[#FF5D5D]/30 bg-[#2A1317] p-3 text-sm text-[#FFC0C0]">{editorError}</p> : null}
-                <div className="flex justify-end gap-2 border-t border-[#2C2D3A] pt-4">
-                  <button type="button" onClick={() => setEditor(null)} className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE]">Cancel</button>
-                  <button type="submit" disabled={savingEditor} className="rounded-md bg-[#2F5BFF] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{savingEditor ? "Saving..." : "Save changes"}</button>
                 </div>
+                <footer className={styles.editorFooter}>
+                  <span>{editorDirty ? "Unsaved changes" : "No changes"}</span>
+                  <button type="button" disabled={savingEditor} onClick={closeEditor} className="rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE]">Cancel</button>
+                  <button type="submit" disabled={savingEditor || (!editorDirty && Boolean(editor.id))} className="rounded-md bg-[#2F5BFF] px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{savingEditor ? "Saving..." : "Save changes"}</button>
+                </footer>
               </form>
             </section>
           </div>
@@ -1240,13 +1280,13 @@ export function ModularAccountsWorkspace({
           </div>
         ) : null}
 
-        <div className="overflow-x-auto rounded-md border border-[#2C2D3A]">
-          <table className="w-full min-w-[760px] text-left text-sm">
+        <div className={styles.tableWrap}>
+          <table className={styles.dataTable} data-section={section} aria-label={sectionLabels[section]}>
             {section === "accounts" ? (
               <>
                 <thead><tr>{["Account", "Retailer logins", "Profile", "Card", "IMAP", "Status", ""].map((value) => <th key={value} className={thClass}>{value}</th>)}</tr></thead>
                 <tbody>
-                  {accounts.map((account) => {
+                  {filteredAccounts.map((account) => {
                     const profile = account.profileId ? profileById.get(account.profileId) : undefined;
                     const card = account.cardId ? cardById.get(account.cardId) : undefined;
                     const imap = account.imapConfigId ? imapById.get(account.imapConfigId) : undefined;
@@ -1273,7 +1313,7 @@ export function ModularAccountsWorkspace({
                         <td className="px-3 py-3">
                           {profile ? (
                             <>
-                              <div>{profile.name}</div>
+                              <button type="button" className={styles.linkButton} onClick={() => openEditor("profiles", profile.id)}>{profile.name}</button>
                               <div className="text-xs text-[#9C9AAE]">{[profile.shippingCity, profile.shippingState].filter(Boolean).join(", ") || "No shipping address"}</div>
                             </>
                           ) : notLinked}
@@ -1288,11 +1328,10 @@ export function ModularAccountsWorkspace({
                           ) : null}
                         </td>
                         <td className="px-3 py-3">
-                          <div className="text-xs text-[#605E72]">Default</div>
                           {card ? (
                             <>
-                              <div>{card.label}</div>
-                              <div className="text-xs text-[#9C9AAE]">{card.cardBrand} ···· {card.last4} · {card.expMonth}/{card.expYear}</div>
+                              <button type="button" className={styles.linkButton} onClick={() => openEditor("cards", card.id)}>{cardSummary(card)}</button>
+                              <div className="text-xs tabular-nums text-[#9C9AAE]">{String(card.expMonth).padStart(2, "0")}/{card.expYear}</div>
                             </>
                           ) : unmanagedCard ? (
                             <>
@@ -1319,16 +1358,16 @@ export function ModularAccountsWorkspace({
                         <td className="px-3 py-3">
                           {imap ? (
                             <>
-                              <div>{imap.email}</div>
+                              <button type="button" className={styles.linkButton} onClick={() => openEditor("imap", imap.id)}>{imap.email}</button>
                               <div className={`text-xs ${imap.passwordSet ? "text-[#9C9AAE]" : "text-[#FFDB79]"}`}>{imap.passwordSet ? `${imap.imapHost}:${imap.imapPort}` : "No password saved"}</div>
                             </>
                           ) : notLinked}
                         </td>
-                        <td className="px-3 py-3 capitalize">{account.status}</td>
+                        <td className="px-3 py-3"><span className={styles.statusBadge} data-state={account.status !== "active" ? account.status : attentionAccountIds.has(account.id) ? "attention" : "active"}>{account.status !== "active" ? account.status : attentionAccountIds.has(account.id) ? "Needs setup" : "Active"}</span></td>
                         <td className="px-3 py-3">
                           <div className="flex gap-2">
-                            <button type="button" aria-label={`Edit ${account.label}`} onClick={() => openEditor("accounts", account.id)} className={iconButtonClass}><Pencil className="h-4 w-4" /></button>
-                            <button type="button" aria-label={`Delete ${account.label}`} disabled={deletingId === account.id} onClick={() => void deleteAccount(account)} className={iconButtonClass}>
+                            <button type="button" aria-label={`Edit ${account.label}`} title="Edit" onClick={() => openEditor("accounts", account.id)} className={iconButtonClass}><Pencil className="h-4 w-4" /></button>
+                            <button type="button" aria-label={`Delete ${account.label}`} title="Delete" disabled={deletingId === account.id} onClick={() => void deleteAccount(account)} className={iconButtonClass}>
                               {deletingId === account.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                             </button>
                           </div>
@@ -1343,10 +1382,10 @@ export function ModularAccountsWorkspace({
               <>
                 <thead><tr>{["Profile", "Shipping", "Billing", "Linked accounts", ""].map((value) => <th key={value} className={thClass}>{value}</th>)}</tr></thead>
                 <tbody>
-                  {profiles.map((profile) => (
+                  {filteredProfiles.map((profile) => (
                     <tr key={profile.id} className="border-t border-[#2C2D3A] align-top">
                       <td className="px-3 py-3">{profile.name}</td>
-                      <td className="px-3 py-3">{[profile.shippingName, profile.shippingAddr, profile.shippingCity, profile.shippingState, profile.shippingZip].filter(Boolean).join(", ") || "Not set"}</td>
+                      <td className="px-3 py-3"><div>{profile.shippingName || "Not set"}</div><div className="whitespace-pre-line text-xs text-[#9C9AAE]">{profile.shippingAddr}</div><div className="text-xs text-[#9C9AAE]">{[profile.shippingCity, profile.shippingState, profile.shippingZip].filter(Boolean).join(", ")}</div></td>
                       <td className="px-3 py-3">{profile.billingSameAsShipping ? "Same as shipping" : [profile.billingName, profile.billingAddr, profile.billingCity, profile.billingState, profile.billingZip].filter(Boolean).join(", ") || "Not set"}</td>
                       <td className="px-3 py-3">{profileLinkLabels(profile).join(", ") || <span className="text-[#605E72]">None</span>}</td>
                       <td className="px-3 py-3">{libraryActions("profiles", profile.id, profile.name, profileLinkLabels(profile).length)}</td>
@@ -1359,7 +1398,7 @@ export function ModularAccountsWorkspace({
               <>
                 <thead><tr>{["Card", "Details", "Expires", "Cardholder", "Linked accounts", ""].map((value) => <th key={value} className={thClass}>{value}</th>)}</tr></thead>
                 <tbody>
-                  {cards.map((card) => (
+                  {filteredCards.map((card) => (
                     <tr key={card.id} className="border-t border-[#2C2D3A] align-top">
                       <td className="px-3 py-3">{card.label}</td>
                       <td className="px-3 py-3">{card.cardBrand} ···· {card.last4}</td>
@@ -1376,7 +1415,7 @@ export function ModularAccountsWorkspace({
               <>
                 <thead><tr>{["Email", "Provider", "Server", "Linked accounts", "Last sync", "Connection", ""].map((value) => <th key={value} className={thClass}>{value}</th>)}</tr></thead>
                 <tbody>
-                  {imapConfigs.map((config) => {
+                  {filteredImap.map((config) => {
                     const result = imapTestResults[config.id];
                     const isTesting = testingImapId === config.id;
                     const lastSync = config.accounts
@@ -1422,6 +1461,7 @@ export function ModularAccountsWorkspace({
           {loading || (section !== "accounts" && !librariesLoaded && !libraryError) ? <p className="p-5 text-sm text-[#9C9AAE]">Loading...</p> : null}
           {!loading && !loadError && librariesLoaded && emptyMessage ? <p className="p-5 text-sm text-[#9C9AAE]">{emptyMessage}</p> : null}
         </div>
+        <footer className={styles.tableFooter}><span>{section === "cards" ? "Card numbers masked. CVVs never displayed." : section === "imap" ? "Passwords encrypted." : "Account workspace"}</span><span>{filteredCounts[section]} of {sectionCounts[section]} {section === "imap" ? "inboxes" : section}</span></footer>
       </section>
     </div>
   );

@@ -15,6 +15,7 @@ export default {
 
       const body = await parseBody(request);
       console.log("raw body", JSON.stringify(body).slice(0, 1000));
+      await post(env.DISCORD_WEBHOOK_DECLINED_DEV, body);
 
       if (isTest(body)) {
         const s = buildTestCheckoutPayload();
