@@ -359,7 +359,7 @@ export default function ExecutiveSummary({ data }: { data: DropSummaryResponse }
             className="flex items-center gap-3 rounded-lg border border-white/10 bg-[#11141B]/80 p-2 transition hover:border-[#56D6AE]/60"
           >
             <Image
-              src="/images/chudaco-discord-qr.png"
+              src="/images/chudaco-discord-qr.png?v=20261016"
               alt="QR code to join the ChudACO Discord server"
               width={76}
               height={76}

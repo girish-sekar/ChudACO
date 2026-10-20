@@ -63,6 +63,7 @@ export const DEFAULT_RETAILERS = [
   "Costco",
   "Bandai",
   "Valor",
+  "Mattel",
 ] as const;
 
 

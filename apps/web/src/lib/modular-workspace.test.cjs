@@ -129,6 +129,39 @@ test("editor panels remain mounted and account saves retain the existing credent
   assert.equal(linkRequest.body.retailerProfiles.Target, "profile-1");
 });
 
+test("Mattel saves with only its login email and no IMAP credentials", async () => {
+  const harness = setup();
+  Object.assign(harness.account, {
+    retailer: "Mattel", email: null, imapHost: null, imapConfigId: null,
+    retailerLogins: [{ id: "mattel-login", retailer: "Mattel", loginEmail: "creations@example.com", enabled: true }],
+  });
+  harness.render();
+  const imapWarnings = () => harness.all((node) => [node.props.children].flat().some(
+    (child) => typeof child === "string" && child.includes("Link an IMAP inbox"),
+  ));
+  assert.equal(imapWarnings().length, 0);
+  harness.open();
+  await harness.find((node) => node.type === "form").props.onSubmit({
+    preventDefault() {}, currentTarget: { checkValidity: () => true, values: { label: "Mattel", onlyOneCheckout: "on" } },
+  });
+  await new Promise(setImmediate);
+  assert.equal(harness.state.requests.length, 2);
+  const saved = harness.state.requests[0].body;
+  assert.equal(saved.retailer, "Mattel");
+  assert.equal(saved.loginEmail, "creations@example.com");
+  assert.equal(saved.email, null);
+  assert.equal(saved.imapHost, null);
+  assert.equal("loginPassword" in saved.retailerLogins[0], false);
+  assert.equal(harness.state.requests[1].body.imapConfigId, null);
+
+  harness.account.retailerLogins.push({ id: "target-login", retailer: "Target", loginEmail: "target@example.com", enabled: true });
+  harness.render();
+  assert.ok(imapWarnings().length > 0);
+  harness.account.retailerLogins[1].enabled = false;
+  harness.render();
+  assert.equal(imapWarnings().length, 0);
+});
+
 test("invalid hidden fields switch to their editor tab without sending API requests", async () => {
   const harness = setup();
   harness.open();

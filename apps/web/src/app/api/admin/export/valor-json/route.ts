@@ -64,6 +64,73 @@ function formatPhone(value: string | null | undefined) {
   return (value ?? "").trim();
 }
 
+const stateNames: Record<string, string> = {
+  AL: "Alabama",
+  AK: "Alaska",
+  AZ: "Arizona",
+  AR: "Arkansas",
+  CA: "California",
+  CO: "Colorado",
+  CT: "Connecticut",
+  DE: "Delaware",
+  FL: "Florida",
+  GA: "Georgia",
+  HI: "Hawaii",
+  ID: "Idaho",
+  IL: "Illinois",
+  IN: "Indiana",
+  IA: "Iowa",
+  KS: "Kansas",
+  KY: "Kentucky",
+  LA: "Louisiana",
+  ME: "Maine",
+  MD: "Maryland",
+  MA: "Massachusetts",
+  MI: "Michigan",
+  MN: "Minnesota",
+  MS: "Mississippi",
+  MO: "Missouri",
+  MT: "Montana",
+  NE: "Nebraska",
+  NV: "Nevada",
+  NH: "New Hampshire",
+  NJ: "New Jersey",
+  NM: "New Mexico",
+  NY: "New York",
+  NC: "North Carolina",
+  ND: "North Dakota",
+  OH: "Ohio",
+  OK: "Oklahoma",
+  OR: "Oregon",
+  PA: "Pennsylvania",
+  RI: "Rhode Island",
+  SC: "South Carolina",
+  SD: "South Dakota",
+  TN: "Tennessee",
+  TX: "Texas",
+  UT: "Utah",
+  VT: "Vermont",
+  VA: "Virginia",
+  WA: "Washington",
+  WV: "West Virginia",
+  WI: "Wisconsin",
+  WY: "Wyoming",
+  DC: "District of Columbia",
+};
+
+function formatStateName(value: string | null | undefined) {
+  const normalized = (value ?? "").trim();
+  if (!normalized) return "";
+
+  const abbreviationMatch = stateNames[normalized.toUpperCase()];
+  if (abbreviationMatch) return abbreviationMatch;
+
+  const fullNameMatch = Object.values(stateNames).find(
+    (name) => name.toLowerCase() === normalized.toLowerCase(),
+  );
+  return fullNameMatch ?? normalized;
+}
+
 function formatExpYear(value: string | number | null | undefined) {
   const normalized = String(value ?? "").trim();
   if (!normalized) return "";
@@ -253,7 +320,7 @@ export async function GET(request: NextRequest) {
             city: account.shippingCity ?? "",
             countryName: "United States",
             countryCode: "US",
-            state: account.shippingState ?? "",
+            state: formatStateName(account.shippingState),
             zipCode: account.shippingZip ?? "",
           },
           billing: {
@@ -264,7 +331,7 @@ export async function GET(request: NextRequest) {
             city: account.billingCity ?? account.shippingCity ?? "",
             countryName: "United States",
             countryCode: "US",
-            state: account.billingState ?? account.shippingState ?? "",
+            state: formatStateName(account.billingState ?? account.shippingState),
             zipCode: account.billingZip ?? account.shippingZip ?? "",
           },
           id: account.id,

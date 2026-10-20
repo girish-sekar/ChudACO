@@ -53,6 +53,7 @@ async function main() {
       { name: "Costco", isActive: true, sortOrder: 4 },
       { name: "Bandai", isActive: true, sortOrder: 5 },
       { name: "Valor", isActive: true, sortOrder: 6 },
+      { name: "Mattel", isActive: true, sortOrder: 7 },
     ],
   });
 

@@ -63,9 +63,9 @@ export default function UserCheckoutSummary({
     for (const checkout of success) {
       const quantity = quantityOf(checkout.qtyLabel);
       const reportedPrice = Number(checkout.price);
-      const resolvedPrice = reportedPrice > 0
-        ? reportedPrice
-        : resolveDropSummaryOrderPrice(checkout.item, checkout.retailer, quantity, pricingRules);
+      const resolvedPrice = resolveDropSummaryOrderPrice(
+        checkout.item, checkout.retailer, quantity, pricingRules, reportedPrice,
+      );
       const key = itemKey(checkout.item);
       const product = products.get(key) ?? { units: 0, volume: 0, pricedUnits: 0, imageUrl: checkout.imageUrl ?? null };
       if (!product.imageUrl && checkout.imageUrl) product.imageUrl = checkout.imageUrl;
@@ -324,7 +324,7 @@ export default function UserCheckoutSummary({
 
         <footer className="relative z-10 mt-3 flex flex-wrap items-end justify-between gap-2 border-t border-white/10 pt-2.5">
           <a href="https://discord.gg/dpcqGawDY4" target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#101116]/85 p-1.5">
-            <Image src="/images/chudaco-discord-qr.png" alt="QR code to join the ChudACO Discord server" width={58} height={58} unoptimized className="h-[58px] w-[58px] rounded bg-white" />
+            <Image src="/images/chudaco-discord-qr.png?v=20261016" alt="QR code to join the ChudACO Discord server" width={58} height={58} unoptimized className="h-[58px] w-[58px] rounded bg-white" />
             <span><span className="block text-[8px] font-black uppercase tracking-[.12em]">Scan to join ChudACO</span><span className="mt-1 block text-[8px] text-[#A8A9B4]">discord.gg/dpcqGawDY4</span></span>
           </a>
           <p className="text-right text-[8px] text-[#747887]">{hasUnknownPrices ? "Some successful orders have unknown prices" : "Your private checkout summary"}</p>

@@ -69,3 +69,19 @@ test("a backfilled unit price scales to the checkout quantity", () => {
     rules,
   ), 119.98);
 });
+
+test("Porsche 930 checkouts use $38 per car without doubling reported order totals", () => {
+  const item = "Hot Wheels RLC Exclusive RWB Porsche 930";
+  for (const retailer of ["Mattel", "Costco", "Pokemon Center", ""]) {
+    assert.equal(resolveDropSummaryOrderPrice(item, retailer, 2, [], 38), 76);
+    assert.equal(resolveDropSummaryOrderPrice(item, retailer, 2, [], 76), 76);
+    assert.equal(resolveDropSummaryOrderPrice(item, retailer, 2, [], null), 76);
+    assert.equal(resolveDropSummaryOrderPrice(item, retailer, 1, [], 38), 38);
+  }
+});
+
+test("other products keep their reported order totals", () => {
+  assert.equal(resolveDropSummaryOrderPrice("Other car", "Mattel", 2, rules, 38), 38);
+  assert.equal(resolveDropSummaryOrderPrice("30th Celebration Elite Trainer Box", "Target", 2, rules, 139.98), 139.98);
+  assert.equal(resolveDropSummaryOrderPrice("Unknown item", "Target", 2, [], null), null);
+});

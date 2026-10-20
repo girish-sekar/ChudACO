@@ -4,12 +4,12 @@ import { z } from "zod";
 import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
 import {
   resolveDropSummaryOrderPrice,
-  resolveDropSummaryPrice,
   type DropSummaryPricingRule,
 } from "@/lib/drop-summary-pricing";
 import {
   fetchDiscordSuccessMessages,
   parseUsernameFromProfile,
+  resolveDiscordDisplayName,
   resolveDiscordUsername,
   type ParsedSuccessMessage,
 } from "@/lib/discord-success";
@@ -39,10 +39,6 @@ function normalizeItemName(item: string): string {
     .replace(/&amp;/gi, "&")
     .replace(/\s+-\s+\$[0-9][0-9,]*(?:\.[0-9]{2})?\s*$/, "")
     .trim();
-}
-
-function isEliteTrainerBox(item: string): boolean {
-  return /elite trainer box|\betb\b/i.test(item);
 }
 
 function parseItemQuantity(value: string | null | undefined): number {
@@ -102,15 +98,14 @@ export async function GET(request: NextRequest) {
   const uniqueRetailers = new Set<string>();
 
   for (const checkout of checkouts) {
-    const reportedPrice = Number(checkout.price);
     const itemQuantity = parseItemQuantity(checkout.qtyLabel);
-    const backfilledUnitPrice =
-      reportedPrice > 0 ? null : resolveDropSummaryPrice(checkout.item, checkout.retailer, pricingRules);
-    const price =
-      reportedPrice > 0
-        ? reportedPrice
-        : (backfilledUnitPrice ?? 0);
-    const orderPrice = backfilledUnitPrice === null ? price : price * itemQuantity;
+    const orderPrice = resolveDropSummaryOrderPrice(
+      checkout.item,
+      checkout.retailer,
+      itemQuantity,
+      pricingRules,
+      Number(checkout.price),
+    ) ?? 0;
     totalVolume += orderPrice;
     if (orderPrice > 0) {
       pricedCheckoutCount += 1;
@@ -125,10 +120,8 @@ export async function GET(request: NextRequest) {
 
     const itemName = normalizeItemName(checkout.item);
     const itemEntry = itemMap.get(itemName) ?? { count: 0, volume: 0, pricedCount: 0, imageUrl: null };
-    const eliteTrainerBox = isEliteTrainerBox(checkout.item);
     itemEntry.count += itemQuantity;
-    itemEntry.volume +=
-      backfilledUnitPrice !== null ? orderPrice : price * (eliteTrainerBox ? 1 : itemQuantity);
+    itemEntry.volume += orderPrice;
     if (orderPrice > 0) {
       itemEntry.pricedCount += itemQuantity;
     }
@@ -190,7 +183,7 @@ export async function GET(request: NextRequest) {
         combinedRetailers.add(normalizeRetailerKey(gap.retailer));
       }
 
-      const buyerKey = gap.userId ?? `discord:${gap.profile}`;
+      const buyerKey = gap.userId ?? `discord:${parseUsernameFromProfile(gap.profile)?.toLowerCase() ?? gap.profile}`;
       const buyerEntry = combinedBuyerMap.get(buyerKey) ?? {
         username: gap.username,
         count: 0,
@@ -204,9 +197,8 @@ export async function GET(request: NextRequest) {
       const itemName = normalizeItemName(gap.item);
       const itemEntry = combinedItemMap.get(itemName) ?? { count: 0, volume: 0, pricedCount: 0, imageUrl: gap.imageUrl };
       if (!itemEntry.imageUrl && gap.imageUrl) itemEntry.imageUrl = gap.imageUrl;
-      const eliteTrainerBox = isEliteTrainerBox(gap.item);
       itemEntry.count += itemQuantity;
-      itemEntry.volume += price * (eliteTrainerBox ? 1 : itemQuantity);
+      itemEntry.volume += price;
       if (parsedPrice !== null) {
         itemEntry.pricedCount += itemQuantity;
       }
@@ -245,6 +237,17 @@ export async function GET(request: NextRequest) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
+  const buyerUsers = await prisma.user.findMany({
+    where: { id: { in: topBuyers.map((buyer) => buyer.userId) } },
+    select: { id: true, discordId: true },
+  });
+  const buyerDiscordIds = new Map(buyerUsers.map((user) => [user.id, user.discordId]));
+  await Promise.all(topBuyers.map(async (buyer) => {
+    const discordId = buyerDiscordIds.get(buyer.userId);
+    if (!discordId) return;
+    buyer.username = (await resolveDiscordDisplayName(discordId)) ?? buyer.username;
+  }));
+
   return NextResponse.json({
     range: { from: from.toISOString(), to: to.toISOString() },
     totals: {
@@ -262,10 +265,13 @@ export async function GET(request: NextRequest) {
       ...checkout,
       imageUrl: reconciledProductImages.get(normalizeItemName(checkout.item)) ?? null,
       price: (
-        Number(checkout.price) > 0
-          ? Number(checkout.price)
-          : (resolveDropSummaryPrice(checkout.item, checkout.retailer, pricingRules) ?? 0) *
-            parseItemQuantity(checkout.qtyLabel)
+        resolveDropSummaryOrderPrice(
+          checkout.item,
+          checkout.retailer,
+          parseItemQuantity(checkout.qtyLabel),
+          pricingRules,
+          Number(checkout.price),
+        ) ?? 0
       ).toFixed(2),
       user: checkout.user,
       acoAccount: checkout.acoAccount,
@@ -292,6 +298,10 @@ function isAlreadyRecorded(
   checkouts: CheckoutForMatch[],
   pricingRules: DropSummaryPricingRule[],
 ): boolean {
+  if (!matchedAcoAccountId && !matchedUserId) {
+    return false;
+  }
+
   return checkouts.some((checkout) => {
     if (matchedAcoAccountId && checkout.acoAccountId !== matchedAcoAccountId) {
       return false;
@@ -304,13 +314,12 @@ function isAlreadyRecorded(
     }
     if (message.price !== null && message.price > 0) {
       const checkoutPrice =
-        Number(checkout.price) > 0
-          ? Number(checkout.price)
-          : resolveDropSummaryOrderPrice(
+        resolveDropSummaryOrderPrice(
               checkout.item,
               checkout.retailer,
               parseItemQuantity(checkout.qtyLabel),
               pricingRules,
+              Number(checkout.price),
             );
       if (checkoutPrice === null || Math.abs(checkoutPrice - message.price) > PRICE_MATCH_EPSILON) {
         return false;
@@ -376,13 +385,23 @@ async function reconcileWithDiscord(
 
   let matchedInDatabase = 0;
 
-  for (const message of messages) {
+  for (const reportedMessage of messages) {
+    const message = {
+      ...reportedMessage,
+      price: resolveDropSummaryOrderPrice(
+        reportedMessage.item,
+        accountByProfile.get(reportedMessage.profile)?.retailer ?? "",
+        parseItemQuantity(reportedMessage.quantity),
+        pricingRules,
+        reportedMessage.price,
+      ),
+    };
     const account = accountByProfile.get(message.profile);
+    const parsedUsername = parseUsernameFromProfile(message.profile);
     let userId = account?.user.id ?? null;
     let username = account?.user.username ?? null;
 
     if (!account) {
-      const parsedUsername = parseUsernameFromProfile(message.profile);
       if (parsedUsername) {
         if (!usernameResolutionCache.has(parsedUsername)) {
           const resolved = await resolveDiscordUsername(parsedUsername);
@@ -410,8 +429,8 @@ async function reconcileWithDiscord(
       continue;
     }
 
-    const gapUserId = userId ?? unmappedBuyer?.id ?? null;
-    const gapUsername = username ?? (userId ? null : unmappedBuyer?.username) ?? null;
+    const gapUserId = userId ?? (parsedUsername ? null : unmappedBuyer?.id ?? null);
+    const gapUsername = username ?? parsedUsername ?? (userId ? null : unmappedBuyer?.username) ?? null;
 
     const messagePrice = message.price !== null && message.price > 0 ? message.price : null;
     const backfilledPrice = resolveDropSummaryOrderPrice(

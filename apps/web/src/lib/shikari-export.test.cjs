@@ -25,9 +25,9 @@ function setup() {
   const account = {
     id: "account-1", botProfileName: 'testuser - "Primary", card',
     shippingName: "Test User", shippingPhone: "0123456789",
-    shippingAddr: "123 Test St\nUnit 2", shippingCity: "Boston", shippingState: "MA", shippingZip: "02108",
+    shippingAddr: "123 Test St\nUnit 2", shippingCity: "Boston", shippingState: "Massachusetts", shippingZip: "02108",
     billingSameAsShipping: true, billingName: "Other Name", billingAddr: "Other Street",
-    billingCity: "Other City", billingState: "CA", billingZip: "90210",
+    billingCity: "Other City", billingState: "California", billingZip: "90210",
     cardOnFile: { last4: "1111", expMonth: 7, expYear: 2030 }, retailerCards: [], retailerProfiles: [],
     retailer: "Target", loginEmail: "legacy@retailer.test",
     encryptedLoginPassword: "legacy-secret:tag", loginPasswordIv: "iv",
@@ -150,8 +150,8 @@ test("profiles select retailer-scoped cards and linked profiles for each enabled
   const account = state.accounts[0];
   account.retailerCards = [{ retailer: "Costco", last4: "4444", expMonth: 9, expYear: 2029 }];
   account.retailerProfiles = [{ retailer: "Costco", profile: {
-    shippingName: "Retailer Person", shippingAddr: "456 Retailer St", shippingCity: "Seattle", shippingState: "WA", shippingZip: "98101",
-    billingSameAsShipping: false, billingName: "Billing Person", billingAddr: "789 Billing St\nSuite 3", billingCity: "Portland", billingState: "OR", billingZip: "97201",
+    shippingName: "Retailer Person", shippingAddr: "456 Retailer St", shippingCity: "Seattle", shippingState: "Washington", shippingZip: "98101",
+    billingSameAsShipping: false, billingName: "Billing Person", billingAddr: "789 Billing St\nSuite 3", billingCity: "Portland", billingState: "Oregon", billingZip: "97201",
   } }];
   const row = [...state.sheetRows[0]];
   Object.assign(row, { 5: "5555555555554444", 6: "09", 7: "2029", 8: "012", 28: JSON.stringify({ acoAccountId: "account-1", retailer: "Costco" }) });

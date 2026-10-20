@@ -35,6 +35,30 @@ function splitAddress(value: string | null | undefined): string[] {
   return [street, extra.join(" ")];
 }
 
+const stateAbbreviations: Record<string, string> = {
+  Alabama: "AL", Alaska: "AK", Arizona: "AZ", Arkansas: "AR", California: "CA",
+  Colorado: "CO", Connecticut: "CT", Delaware: "DE", Florida: "FL", Georgia: "GA",
+  Hawaii: "HI", Idaho: "ID", Illinois: "IL", Indiana: "IN", Iowa: "IA", Kansas: "KS",
+  Kentucky: "KY", Louisiana: "LA", Maine: "ME", Maryland: "MD", Massachusetts: "MA",
+  Michigan: "MI", Minnesota: "MN", Mississippi: "MS", Missouri: "MO", Montana: "MT",
+  Nebraska: "NE", Nevada: "NV", "New Hampshire": "NH", "New Jersey": "NJ",
+  "New Mexico": "NM", "New York": "NY", "North Carolina": "NC", "North Dakota": "ND",
+  Ohio: "OH", Oklahoma: "OK", Oregon: "OR", Pennsylvania: "PA", "Rhode Island": "RI",
+  "South Carolina": "SC", "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT",
+  Vermont: "VT", Virginia: "VA", Washington: "WA", "West Virginia": "WV", Wisconsin: "WI",
+  Wyoming: "WY", "District of Columbia": "DC",
+};
+
+function formatState(value: string | null | undefined): string {
+  const normalized = (value ?? "").trim();
+  if (!normalized) return "";
+
+  const match = Object.entries(stateAbbreviations).find(
+    ([name]) => name.toLowerCase() === normalized.toLowerCase(),
+  );
+  return match?.[1] ?? normalized.toUpperCase();
+}
+
 export async function GET(request: NextRequest) {
   const authContext = await getAuthenticatedContext();
   if (!authContext) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -120,10 +144,10 @@ export async function GET(request: NextRequest) {
           rows.add([
             account.botProfileName, ...shippingName, resolveExportEmail(account, entry.retailer),
             account.shippingPhone ?? account.billingPhone ?? "", cardNumber, month, year, cvv,
-            ...shippingAddress, account.shippingCity ?? "", account.shippingState ?? "", account.shippingZip ?? "", "US",
+            ...shippingAddress, account.shippingCity ?? "", formatState(account.shippingState), account.shippingZip ?? "", "US",
             ...billingName, ...billingAddress,
             (sameBilling ? account.shippingCity : account.billingCity) ?? "",
-            (sameBilling ? account.shippingState : account.billingState) ?? "",
+            formatState(sameBilling ? account.shippingState : account.billingState),
             (sameBilling ? account.shippingZip : account.billingZip) ?? "", "US",
           ].map(csvField).join(","));
         }

@@ -83,7 +83,12 @@ export function resolveDropSummaryOrderPrice(
   retailer: string,
   quantity: number,
   rules: DropSummaryPricingRule[],
+  reportedPrice?: number | null,
 ): number | null {
-  const unitPrice = resolveDropSummaryPrice(item, retailer, rules);
+  const isPorsche930 = /hot wheels\s+rlc\s+exclusive\s+rwb\s+porsche\s+930/i.test(item);
+  if (reportedPrice != null && reportedPrice > 0) {
+    return isPorsche930 && reportedPrice === 38 ? reportedPrice * quantity : reportedPrice;
+  }
+  const unitPrice = resolveDropSummaryPrice(item, retailer, rules) ?? (isPorsche930 ? 38 : null);
   return unitPrice === null ? null : unitPrice * quantity;
 }

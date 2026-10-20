@@ -171,6 +171,25 @@ export async function fetchDiscordSuccessMessages(
 
 export type ResolvedGuildMember = { discordId: string } | null;
 
+export async function resolveDiscordDisplayName(discordId: string): Promise<string | null> {
+  const token = process.env.DISCORD_BOT_TOKEN?.trim();
+  if (!token) return null;
+
+  try {
+    const response = await fetch(`https://discord.com/api/v10/users/${encodeURIComponent(discordId)}`, {
+      headers: { Authorization: `Bot ${token}` },
+      next: { revalidate: 300 },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+
+    const user = (await response.json()) as { global_name?: string | null; username?: string };
+    return user.global_name?.trim() || user.username?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 // Resolves a bare Discord username to a guild member's user ID via the bot's member-search API.
 export async function resolveDiscordUsername(username: string): Promise<ResolvedGuildMember> {
   const token = process.env.DISCORD_BOT_TOKEN?.trim();

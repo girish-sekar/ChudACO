@@ -900,9 +900,11 @@ export function ModularAccountsWorkspace({
     }
 
     const imap = account.imapConfigId ? imapById.get(account.imapConfigId) : undefined;
-    if (!account.imapConfigId) {
+    const requiresImap = (account.retailerLogins.length ? account.retailerLogins : [{ retailer: account.retailer, enabled: true }])
+      .some((login) => login.enabled && login.retailer.trim().toLowerCase() !== "mattel");
+    if (requiresImap && !account.imapConfigId) {
       issues.push({ section: "accounts", targetId: account.id, message: "Link an IMAP inbox; IMAP sync and verification emails are unavailable." });
-    } else if (imap && !imap.passwordSet) {
+    } else if (requiresImap && imap && !imap.passwordSet) {
       issues.push({ section: "imap", targetId: imap.id, message: `IMAP inbox ${imap.email} has no saved password.` });
     }
 
