@@ -299,10 +299,10 @@ export default function DropSummaryDashboard() {
           </section>
 
           <section className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
-            <h2 className="font-heading text-xl font-semibold">Discord reconciliation</h2>
+            <h2 className="font-heading text-xl font-semibold">Discord source reconciliation</h2>
             <p className="mt-1 text-sm text-[#9C9AAE]">
-              Cross-checks the #success channel against recorded checkouts to surface successes that never made it
-              into the database.
+              When available, #success is the source of truth for summary totals. Database-only successes are excluded;
+              Discord successes missing from the database are listed below.
             </p>
             {!data.reconciliation.configured ? (
               <p className="mt-3 text-sm text-[#605E72]">
@@ -323,7 +323,7 @@ export default function DropSummaryDashboard() {
                     without it.
                   </p>
                 ) : null}
-                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                   <article className="rounded-xl border border-[#2C2D3A] bg-[#101014] p-4">
                     <p className="text-xs text-[#605E72]">Discord successes found</p>
                     <p className="mt-2 font-heading text-2xl font-bold">
@@ -340,6 +340,12 @@ export default function DropSummaryDashboard() {
                     <p className="text-xs text-[#605E72]">Missing from database</p>
                     <p className="mt-2 font-heading text-2xl font-bold text-[#FFCB3C]">
                       {data.reconciliation.gapCount}
+                    </p>
+                  </article>
+                  <article className="rounded-xl border border-[#2C2D3A] bg-[#101014] p-4">
+                    <p className="text-xs text-[#605E72]">DB successes missing from Discord</p>
+                    <p className="mt-2 font-heading text-2xl font-bold">
+                      {data.reconciliation.error ? "—" : data.reconciliation.databaseOnlyCount}
                     </p>
                   </article>
                   <article className="rounded-xl border border-[#2C2D3A] bg-[#101014] p-4">

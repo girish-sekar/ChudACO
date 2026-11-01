@@ -9,8 +9,8 @@ const item = "30th Celebration Elite Trainer Box";
 const from = new Date("2026-10-16T00:00:00.000Z");
 const to = new Date("2026-10-16T23:59:59.999Z");
 
-function loadPricing() {
-  const filename = path.join(__dirname, "drop-summary-pricing.ts");
+function loadKnownItemPricing() {
+  const filename = path.join(__dirname, "known-item-pricing.ts");
   const source = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText;
@@ -19,7 +19,20 @@ function loadPricing() {
   return context.exports;
 }
 
-async function summarize({ registered = false, displayName = null, checkouts = true, product = item, checkoutPrice = 139.98, messagePrice = 139.98 } = {}) {
+function loadPricing() {
+  const filename = path.join(__dirname, "drop-summary-pricing.ts");
+  const source = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText;
+  const context = {
+    exports: {},
+    require: (name) => name === "./known-item-pricing" ? loadKnownItemPricing() : require(name),
+  };
+  vm.runInNewContext(source, context, { filename });
+  return context.exports;
+}
+
+async function summarize({ registered = false, displayName = null, checkouts = true, checkoutCount = 1, messageCount = 3, product = item, checkoutPrice = 139.98, messagePrice = 139.98, mentionedUser = null } = {}) {
   const checkout = {
     id: "checkout-1",
     acoAccountId: "account-1",
@@ -32,7 +45,12 @@ async function summarize({ registered = false, displayName = null, checkouts = t
     qtyLabel: "Qty 2",
     occurredAt: new Date("2026-10-16T07:26:22.328Z"),
   };
-  const messages = ["07:27:26.298", "07:31:16.391", "07:32:27.694"].map((time, index) => ({
+  const checkoutRows = Array.from({ length: checkoutCount }, (_, index) => ({
+    ...checkout,
+    id: `checkout-${index}`,
+    occurredAt: new Date(checkout.occurredAt.getTime() + index * 1000),
+  }));
+  const messages = ["07:27:26.298", "07:31:16.391", "07:32:27.694"].slice(0, messageCount).map((time, index) => ({
     messageId: `message-${index}`,
     occurredAt: new Date(`2026-10-16T${time}Z`),
     profile: `yeeming - ${index === 1 ? "William's amex" : "William Chase"}`,
@@ -40,17 +58,20 @@ async function summarize({ registered = false, displayName = null, checkouts = t
     quantity: "2",
     price: messagePrice,
     imageUrl: null,
+    mentionedUser,
   }));
   const mocks = {
     "@chudaco/db": {
       prisma: {
-        checkout: { findMany: async () => checkouts ? [checkout] : [] },
+        checkout: { findMany: async () => checkouts ? checkoutRows : [] },
         pricingRule: { findMany: async () => [] },
         acoAccount: { findMany: async () => [] },
         user: {
           findMany: async () => [{ id: "buyer-1", discordId: "registered-discord-id" }],
           findUnique: async ({ where }) => where.discordId === "registered-discord-id"
             ? { id: "buyer-1", username: "registered-buyer" }
+            : where.id === "buyer-1"
+              ? { id: "buyer-1", username: "registered-buyer" }
             : where.discordId === "346422586931937280"
               ? { id: "fallback-buyer", username: "steak_n_fries" }
               : null,
@@ -64,7 +85,7 @@ async function summarize({ registered = false, displayName = null, checkouts = t
     },
     "@/lib/drop-summary-pricing": loadPricing(),
     "@/lib/discord-success": {
-      fetchDiscordSuccessMessages: async () => ({ messages, scanned: 3, error: null }),
+      fetchDiscordSuccessMessages: async () => ({ messages, scanned: messages.length, error: null }),
       parseUsernameFromProfile: (profile) => profile.split(" - ")[0],
       resolveDiscordUsername: async () => registered ? { discordId: "registered-discord-id" } : null,
       resolveDiscordDisplayName: async (discordId) => {
@@ -92,21 +113,66 @@ test("keeps all three unidentified buyer successes despite nearby identical chec
   const summary = await summarize();
   assert.equal(summary.reconciliation.matchedInDatabase, 0);
   assert.equal(summary.reconciliation.gapCount, 3);
-  assert.equal(summary.totals.successfulCheckouts, 4);
+  assert.equal(summary.totals.successfulCheckouts, 3);
+  assert.equal(summary.totals.totalDollarVolume, "419.94");
   assert.equal(summary.reconciliation.gapVolume, "419.94");
 });
 
+test("attributes unmatched successes to their Discord mention before the fallback buyer", async () => {
+  const summary = await summarize({
+    mentionedUser: { id: "discord-yeeming", username: "yeeming", displayName: "Yeeming" },
+  });
+  const buyer = summary.topBuyers.find((entry) => entry.username === "Yeeming");
+  assert.ok(buyer);
+  assert.equal(buyer.count, 3);
+  assert.equal(summary.topBuyers.some((entry) => entry.username === "steak_n_fries"), false);
+  assert.ok(summary.reconciliation.gaps.every((gap) => gap.username === "Yeeming"));
+});
+
 test("still reconciles successes when the buyer identity matches the checkout", async () => {
-  const summary = await summarize({ registered: true });
-  assert.equal(summary.reconciliation.matchedInDatabase, 3);
+  const summary = await summarize({ registered: true, messageCount: 1 });
+  assert.equal(summary.reconciliation.matchedInDatabase, 1);
   assert.equal(summary.reconciliation.gapCount, 0);
   assert.equal(summary.totals.successfulCheckouts, 1);
+});
+
+test("uses three Discord successes instead of six database rows", async () => {
+  const summary = await summarize({
+    registered: true,
+    checkoutCount: 6,
+    mentionedUser: { id: "froakieflick-discord-id", username: "girishsekar8392", displayName: "FroakieFlick" },
+  });
+
+  assert.equal(summary.sourceOfTruth, "discord");
+  assert.equal(summary.totals.successfulCheckouts, 3);
+  assert.equal(summary.reconciliation.matchedInDatabase, 3);
+  assert.equal(summary.reconciliation.databaseOnlyCount, 3);
+  assert.equal(summary.reconciliation.gapCount, 0);
+  assert.equal(summary.topBuyers[0].username, "FroakieFlick");
+  assert.equal(summary.topBuyers[0].count, 3);
+  assert.equal(summary.recent.length, 3);
+});
+
+test("uses two Discord successes instead of three database rows", async () => {
+  const summary = await summarize({
+    registered: true,
+    checkoutCount: 3,
+    messageCount: 2,
+    mentionedUser: { id: "concord-discord-id", username: "concord1389", displayName: "concord" },
+  });
+
+  assert.equal(summary.totals.successfulCheckouts, 2);
+  assert.equal(summary.reconciliation.matchedInDatabase, 2);
+  assert.equal(summary.reconciliation.databaseOnlyCount, 1);
+  assert.equal(summary.topBuyers[0].username, "concord");
+  assert.equal(summary.topBuyers[0].count, 2);
 });
 
 test("car order totals are $76 throughout the drop summary without reconciliation duplicates", async () => {
   for (const messagePrice of [38, 76, null]) {
     const summary = await summarize({
       registered: true,
+      messageCount: 1,
       product: "Hot Wheels RLC Exclusive RWB Porsche 930",
       checkoutPrice: 38,
       messagePrice,
@@ -155,6 +221,11 @@ test("individual checkout summary counts two cars as $76 spent", () => {
       useState: (initial) => [initial, () => {}],
     },
     "@/lib/drop-summary-pricing": loadPricing(),
+    "@/lib/drop-summary-image": {
+      copySummaryPng: async () => {},
+      downloadSummaryPng: () => {},
+      renderSummaryPng: async () => new Blob(),
+    },
     "@/lib/dashboard": { toCurrency: (value) => `$${value}` },
   };
   const context = { exports: {}, require: (name) => mocks[name] ?? require(name), Date };
@@ -177,7 +248,7 @@ test("shows the Discord display name instead of the stored login for top buyers"
   const summary = await summarize({ registered: true, displayName: "FroakieFlick" });
   assert.equal(summary.topBuyers[0].username, "FroakieFlick");
   assert.equal(summary.topBuyers[0].userId, "buyer-1");
-  assert.equal(summary.topBuyers[0].count, 1);
+  assert.equal(summary.topBuyers[0].count, 3);
 });
 
 test("resolves the Discord display name for buyers with only reconciled successes", async () => {
@@ -188,7 +259,7 @@ test("resolves the Discord display name for buyers with only reconciled successe
 
 test("keeps the stored username when Discord display name lookup fails", async () => {
   const summary = await summarize({ registered: true });
-  assert.equal(summary.topBuyers[0].username, "girishsekar");
+  assert.equal(summary.topBuyers[0].username, "registered-buyer");
 });
 
 async function resolveDisplayName({ user, ok = true, token = "test-token", fail = false }) {
@@ -198,6 +269,7 @@ async function resolveDisplayName({ user, ok = true, token = "test-token", fail 
   }).outputText;
   const context = {
     exports: {},
+    require: (name) => name === "./known-item-pricing" ? loadKnownItemPricing() : require(name),
     process: { env: { DISCORD_BOT_TOKEN: token } },
     AbortSignal,
     fetch: async (url) => {
@@ -221,18 +293,17 @@ test("Discord display name lookup tolerates missing configuration and API errors
   assert.equal(await resolveDisplayName({ fail: true }), null);
 });
 
-test("groups Yeeming's profiles as one separate buyer instead of the fallback buyer", async () => {
+test("links unmapped Yeeming checkouts to the fallback buyer", async () => {
   const summary = await summarize();
-  assert.equal(summary.totals.uniqueBuyers, 2);
-  const buyer = summary.topBuyers.find((entry) => entry.username === "yeeming");
+  assert.equal(summary.totals.uniqueBuyers, 1);
+  const buyer = summary.topBuyers.find((entry) => entry.username === "steak_n_fries");
   assert.ok(buyer);
-  assert.equal(buyer.userId, "discord:yeeming");
+  assert.equal(buyer.userId, "fallback-buyer");
   assert.equal(buyer.count, 3);
   assert.equal(buyer.volume, "419.94");
-  assert.equal(summary.topBuyers.some((entry) => entry.username === "steak_n_fries"), false);
   for (const gap of summary.reconciliation.gaps) {
-    assert.equal(gap.username, "yeeming");
-    assert.equal(gap.userId, null);
-    assert.equal(gap.resolved, false);
+    assert.equal(gap.username, "steak_n_fries");
+    assert.equal(gap.userId, "fallback-buyer");
+    assert.equal(gap.resolved, true);
   }
 });

@@ -28,6 +28,19 @@ test("resolves exact product labels despite item-name formatting differences", (
   );
 });
 
+test("prices 30th Celebration Booster Bundles at $31.99 each", () => {
+  const item = "Pokémon TCG: 30th Celebration Booster Bundle";
+  assert.equal(resolveDropSummaryPrice(item, "Target", rules), 31.99);
+  assert.equal(resolveDropSummaryOrderPrice(item, "Target", 2, rules), 63.98);
+  assert.equal(resolveDropSummaryOrderPrice(item, "Target", 2, rules, 59.98), 63.98);
+});
+
+test("prices Ascended Heroes Tech Sticker Collections at $19.99 each", () => {
+  const item = "Pokémon TCG: Mega Evolution—Ascended Heroes Tech Sticker Collection";
+  assert.equal(resolveDropSummaryPrice(item, "Target", rules), 19.99);
+  assert.equal(resolveDropSummaryOrderPrice(item, "Target", 2, rules), 39.98);
+});
+
 test("applies retailer-specific prices only to the matching retailer", () => {
   const item = "Pokémon TCG: 30th Celebration Ultra-Premium Collection- Night";
   assert.equal(resolveDropSummaryPrice(item, "Target", rules), 249.99);

@@ -1,7 +1,13 @@
+import { ascendedHeroesTechStickerUnitPrice } from "./known-item-pricing";
+
 export type DropSummaryPricingRule = {
   category: string;
   priceRangeLabel: string;
 };
+
+function is30thCelebrationBoosterBundle(item: string): boolean {
+  return /\b30th\b.*\bcelebration\b.*\bbooster\s+bundles?\b/i.test(item);
+}
 
 function normalizeTerms(value: string): string[] {
   return value
@@ -63,6 +69,14 @@ export function resolveDropSummaryPrice(
   retailer: string,
   rules: DropSummaryPricingRule[],
 ): number | null {
+  if (is30thCelebrationBoosterBundle(item)) {
+    return 31.99;
+  }
+  const stickerUnitPrice = ascendedHeroesTechStickerUnitPrice(item);
+  if (stickerUnitPrice !== null) {
+    return stickerUnitPrice;
+  }
+
   const matchingPrices = rules
     .filter((rule) => matchesCategory(rule.category, item, retailer))
     .map((rule) => {
@@ -85,6 +99,14 @@ export function resolveDropSummaryOrderPrice(
   rules: DropSummaryPricingRule[],
   reportedPrice?: number | null,
 ): number | null {
+  if (is30thCelebrationBoosterBundle(item)) {
+    return 31.99 * quantity;
+  }
+  const stickerUnitPrice = ascendedHeroesTechStickerUnitPrice(item);
+  if (stickerUnitPrice !== null) {
+    return stickerUnitPrice * quantity;
+  }
+
   const isPorsche930 = /hot wheels\s+rlc\s+exclusive\s+rwb\s+porsche\s+930/i.test(item);
   if (reportedPrice != null && reportedPrice > 0) {
     return isPorsche930 && reportedPrice === 38 ? reportedPrice * quantity : reportedPrice;

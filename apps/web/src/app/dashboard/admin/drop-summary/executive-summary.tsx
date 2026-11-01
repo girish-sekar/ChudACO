@@ -4,6 +4,7 @@ import Image from "next/image";
 import { Copy } from "lucide-react";
 import { useRef, useState } from "react";
 import { toCurrency, type DropSummaryResponse } from "@/lib/dashboard";
+import { copySummaryPng, downloadSummaryPng, renderSummaryPng } from "@/lib/drop-summary-image";
 
 function formatDayLabel(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -46,24 +47,8 @@ export default function ExecutiveSummary({ data }: { data: DropSummaryResponse }
     setDownloadError(null);
     setCopyMessage(null);
     try {
-      const { toPng } = await import("html-to-image");
-      if (document.fonts?.ready) {
-        await document.fonts.ready;
-      }
-      const options = {
-        pixelRatio: 2,
-        backgroundColor: "#0B0B10",
-        width: node.scrollWidth,
-        height: node.scrollHeight,
-      };
-      // First pass warms up image/font measurement; the browser's initial render
-      // otherwise clips the bottom of the capture.
-      await toPng(node, options);
-      const dataUrl = await toPng(node, options);
-      const link = document.createElement("a");
-      link.download = `chudaco-drop-summary-${data.range.from.slice(0, 10)}-${backgroundStyle}.png`;
-      link.href = dataUrl;
-      link.click();
+      const image = await renderSummaryPng(node, "#0B0B10");
+      downloadSummaryPng(image, `chudaco-drop-summary-${data.range.from.slice(0, 10)}-${backgroundStyle}.png`);
     } catch {
       setDownloadError("Failed to generate image.");
     } finally {
@@ -78,23 +63,7 @@ export default function ExecutiveSummary({ data }: { data: DropSummaryResponse }
     setCopyMessage(null);
     setDownloadError(null);
     try {
-      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-        throw new Error("Image clipboard is not supported by this browser.");
-      }
-      const { toPng } = await import("html-to-image");
-      if (document.fonts?.ready) {
-        await document.fonts.ready;
-      }
-      const options = {
-        pixelRatio: 2,
-        backgroundColor: "#0B0B10",
-        width: node.scrollWidth,
-        height: node.scrollHeight,
-      };
-      await toPng(node, options);
-      const dataUrl = await toPng(node, options);
-      const imageBlob = await fetch(dataUrl).then((response) => response.blob());
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": imageBlob })]);
+      await copySummaryPng(renderSummaryPng(node, "#0B0B10"));
       setCopyMessage("Image copied to clipboard");
     } catch (error) {
       setDownloadError(error instanceof Error ? error.message : "Failed to copy image.");
@@ -374,9 +343,9 @@ export default function ExecutiveSummary({ data }: { data: DropSummaryResponse }
             </span>
           </a>
           <span className="pb-1 text-right text-[10px] text-[#9298A8]">
-            {data.reconciliation.configured && data.reconciliation.unpricedGapCount > 0
-              ? `${data.reconciliation.unpricedGapCount} Discord success(es) are unpriced`
-              : "Drop performance snapshot"}
+            {data.sourceOfTruth === "discord"
+              ? `#success source · ${data.reconciliation.configured ? data.reconciliation.databaseOnlyCount : 0} DB-only success(es) omitted`
+              : "Database source · Discord unavailable"}
           </span>
         </div>
       </div>

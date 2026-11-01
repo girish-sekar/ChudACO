@@ -36,3 +36,27 @@ test("ignores non-http product image URLs", () => {
 
   assert.equal(parsed?.imageUrl, null);
 });
+
+test("parses the mention matching the checkout profile", () => {
+  const parsed = parseSuccessEmbed({
+    id: "message-3",
+    timestamp: "2026-10-10T12:00:00.000Z",
+    mentions: [
+      { id: "support-user", username: "support", global_name: "Support" },
+      { id: "buyer-user", username: "yeeming", global_name: "Yeeming" },
+    ],
+    embeds: [{
+      title: "Successful Checkout",
+      fields: [
+        { name: "Profile Name", value: "yeeming - David Chase" },
+        { name: "Item", value: "Test item" },
+      ],
+    }],
+  });
+
+  assert.deepEqual(parsed?.mentionedUser, {
+    id: "buyer-user",
+    username: "yeeming",
+    displayName: "Yeeming",
+  });
+});

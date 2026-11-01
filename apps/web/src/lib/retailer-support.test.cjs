@@ -72,10 +72,25 @@ test("Valor exports a Mattel profile using its login email without IMAP or a log
   assert.equal(profile.email, "creations@example.test");
   assert.equal(profile.shipping.firstName, "Mattel");
   assert.equal(profile.shipping.addressLine1, "123 Test St");
-  assert.equal(profile.card.number, "4111111111111111");
+  assert.equal(profile.card.number, "4111 1111 1111 1111");
   assert.equal(profile.oneCheckout, true);
   assert.equal("imapHost" in profile, false);
   assert.equal("password" in profile, false);
+
+  const cardCases = [
+    { brand: "Amex", number: "379251865643003", last4: "3003", expected: "3792 518656 43003" },
+    { brand: "Visa", number: "4100390676056282", last4: "6282", expected: "4100 3906 7605 6282" },
+    { brand: "Mastercard", number: "5555444433331111", last4: "1111", expected: "5555 4444 3333 1111" },
+    { brand: "Discover", number: "6011111111111117", last4: "1117", expected: "6011 1111 1111 1117" },
+  ];
+  for (const cardCase of cardCases) {
+    account.cardOnFile.cardBrand = cardCase.brand;
+    account.cardOnFile.last4 = cardCase.last4;
+    Object.assign(sheetRow, { 4: cardCase.brand, 5: cardCase.number });
+    const formattedResponse = await GET(new NextRequest("http://localhost/api/admin/export/valor-json?retailers=Mattel"));
+    const formattedProfile = (await formattedResponse.json())[account.id];
+    assert.equal(formattedProfile.card.number, cardCase.expected);
+  }
 
   account.retailerLogins[0].enabled = false;
   const disabledResponse = await GET(new NextRequest("http://localhost/api/admin/export/valor-json?retailers=Mattel"));

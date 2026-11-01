@@ -6,9 +6,10 @@ export default {
 
       if (env.RELAY_SECRET) {
         const secret = request.headers.get("x-relay-secret") || "";
-        if (secret !== env.RELAY_SECRET) 
+        if (secret !== env.RELAY_SECRET) {
           console.log("rejected: relay secret mismatch");
           return ok("accepted");
+        }
       }
 
       const body = await parseBody(request);
@@ -19,9 +20,10 @@ export default {
         return ok("test");
       }
 
-      if (!isHayhaSuccess(body)) 
+      if (!isHayhaSuccess(body)) {
         console.log("not matched as success:", blob(body).slice(0, 200));
         return ok("not success");
+      }
 
       const s = sanitize(body);
       await post(env.DISCORD_WEBHOOK_URL, successPayload("ChudACO Success", s));

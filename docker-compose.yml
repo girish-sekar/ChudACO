@@ -50,5 +50,20 @@ services:
       - postgres
     restart: unless-stopped
 
+  relay:
+    image: node:20-bookworm
+    container_name: chudaco-success-relay
+    working_dir: /workspace
+    command: ["node", "relay-workers/server.mjs"]
+    ports:
+      - "8788:8788"
+    environment:
+      PORT: "8788"
+      RELAY_SECRET: ${RELAY_SHARED_SECRET:-}
+      DISCORD_WEBHOOK_URL: ${RELAY_DISCORD_WEBHOOK_URL:-}
+    volumes:
+      - .:/workspace:ro
+    restart: unless-stopped
+
 volumes:
   chudaco-postgres-data:

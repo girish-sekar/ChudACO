@@ -2,6 +2,7 @@ import { SignInButton } from "@/components/sign-in-button";
 import Link from "next/link";
 
 export default function LoginPage() {
+  const whopUrl = process.env.NEXT_PUBLIC_WHOP_URL?.trim();
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#080A12] text-[#F4F4F8]">
       <div className="pointer-events-none absolute inset-0 opacity-90">
@@ -80,6 +81,17 @@ export default function LoginPage() {
           <div className="mt-8">
             <SignInButton />
           </div>
+
+          {whopUrl && (
+            <div className="mt-4 text-sm">
+              <a href={whopUrl} target="_blank" rel="noopener noreferrer" className="text-[#B9C6FF] hover:underline">
+                Get Premium on Whop
+              </a>
+              <p className="mt-2 text-xs leading-relaxed text-[#9C9AAE]">
+                Connect the same Discord account you sign in with when checking out.
+              </p>
+            </div>
+          )}
 
           <p className="mt-4 text-xs text-[#8C8CA2]">Role-gated login. Session is scoped to your Discord identity.</p>
         </div>

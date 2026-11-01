@@ -1,3 +1,5 @@
+import { ascendedHeroesTechStickerUnitPrice } from "./known-item-pricing";
+
 const DISCORD_EPOCH = 1420070400000n;
 
 function snowflakeFromDate(date: Date): string {
@@ -47,7 +49,8 @@ type DiscordEmbed = {
   thumbnail?: { url?: string };
   image?: { url?: string };
 };
-type DiscordMessage = { id: string; timestamp: string; embeds?: DiscordEmbed[] };
+type DiscordMention = { id: string; username?: string; global_name?: string | null };
+type DiscordMessage = { id: string; timestamp: string; embeds?: DiscordEmbed[]; mentions?: DiscordMention[] };
 
 export type ParsedSuccessMessage = {
   messageId: string;
@@ -57,6 +60,7 @@ export type ParsedSuccessMessage = {
   quantity: string;
   price: number | null;
   imageUrl: string | null;
+  mentionedUser: { id: string; username: string | null; displayName: string | null } | null;
 };
 
 function fieldsMap(embed: DiscordEmbed): Map<string, string> {
@@ -83,12 +87,18 @@ export function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage
   const quantity = fields.get("quantity") ?? "0";
   const parsedQuantity = Number.parseInt(quantity, 10);
   const itemQuantity = Number.isSafeInteger(parsedQuantity) && parsedQuantity > 0 ? parsedQuantity : 1;
-  const unitPrice = item ? knownEtbUnitPrice(item) : null;
+  const unitPrice = item ? knownEtbUnitPrice(item) ?? ascendedHeroesTechStickerUnitPrice(item) : null;
   const price = parsedPrice ?? (unitPrice === null ? null : unitPrice * itemQuantity);
 
   if (!profile || !item) {
     return null;
   }
+
+  const profileUsername = parseUsernameFromProfile(profile)?.toLowerCase();
+  const mentions = message.mentions ?? [];
+  const mentionedUser = mentions.find((user) =>
+    [user.username, user.global_name].some((name) => name?.trim().toLowerCase() === profileUsername),
+  ) ?? mentions[0] ?? null;
 
   return {
     messageId: message.id,
@@ -98,6 +108,13 @@ export function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage
     quantity,
     price,
     imageUrl,
+    mentionedUser: mentionedUser
+      ? {
+          id: mentionedUser.id,
+          username: mentionedUser.username?.trim() || null,
+          displayName: mentionedUser.global_name?.trim() || mentionedUser.username?.trim() || null,
+        }
+      : null,
   };
 }
 

@@ -2,6 +2,7 @@ import { FeeType, prisma } from "@chudaco/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveCheckoutRetailer } from "@/lib/checkout-retailer";
+import { ascendedHeroesTechStickerUnitPrice } from "@/lib/known-item-pricing";
 
 const workerCheckoutSchema = z.object({
   profile: z.string().trim().min(1),
@@ -123,13 +124,18 @@ export async function POST(request: Request) {
   // to 0.00 and flag it below for manual reconciliation.
   let parsedPrice = parsePriceToNumber(data.price);
   if (parsedPrice === null) {
-    console.error("Worker checkout price could not be parsed; defaulting to 0.00 for manual review", {
-      profile: data.profile,
-      site: data.site,
-      item: data.item,
-      price: data.price,
-    });
-    parsedPrice = 0;
+    const stickerUnitPrice = ascendedHeroesTechStickerUnitPrice(data.item);
+    if (stickerUnitPrice !== null) {
+      parsedPrice = stickerUnitPrice * data.quantity;
+    } else {
+      console.error("Worker checkout price could not be parsed; defaulting to 0.00 for manual review", {
+        profile: data.profile,
+        site: data.site,
+        item: data.item,
+        price: data.price,
+      });
+      parsedPrice = 0;
+    }
   }
 
   const normalizedPrice = parsedPrice.toFixed(2);

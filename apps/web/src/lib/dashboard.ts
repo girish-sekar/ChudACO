@@ -311,6 +311,7 @@ export type DropSummaryReconciliation =
       discordMessagesScanned: number;
       successMessagesFound: number;
       matchedInDatabase: number;
+      databaseOnlyCount: number;
       gapCount: number;
       gapVolume: string;
       unpricedGapCount: number;
@@ -321,6 +322,7 @@ export type DropSummaryReconciliation =
 
 export type DropSummaryResponse = {
   range: { from: string; to: string };
+  sourceOfTruth: "discord" | "database";
   totals: DropSummaryTotals;
   byRetailer: DropSummaryRetailerRow[];
   byItem: DropSummaryItemRow[];

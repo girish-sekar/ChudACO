@@ -84,6 +84,31 @@ passwords and must be handled securely.
 
 Run the focused export tests with `node --test apps/web/src/lib/shikari-export.test.cjs`.
 
+## Premium Detection
+
+Set `PREMIUM_ROLE_ID` to the premium role in `DISCORD_GUILD_ID`. The web app reuses
+`DISCORD_BOT_TOKEN`; the bot must be able to read guild members. Premium is based
+only on that Discord role, whether granted by Whop or manually by an admin.
+The existing `DISCORD_REQUIRED_ROLE_ID` sign-in requirement is unchanged.
+
+Set `NEXT_PUBLIC_WHOP_URL` to your Whop checkout page before building the web app.
+It is public configuration. Without it, the checkout links are hidden.
+
+Server code can call `isPremium(discordUserId)` from `apps/web/src/lib/premium.ts`.
+`GET /api/me/premium` uses the authenticated session and returns `{ premium: boolean }`
+(401 for unauthenticated requests). No status is stored in the database or JWT.
+Definitive role results are cached in memory for two minutes per process;
+`invalidatePremiumCache(userId)` forces a fresh lookup on that process. The small
+`PremiumCache` interface can be implemented with Redis for shared caching later.
+Missing server configuration logs the missing variable names on first use and
+returns false. Discord errors also fail closed without logging tokens or bodies.
+Rate limits respect Discord's `retry_after` delay once, then fail closed if the
+retry fails. Individual network requests time out after ten seconds.
+
+Run focused detection, API, and link tests:
+`cd apps/web && node --test src/lib/premium.test.cjs`.
+There are no Whop API calls, webhooks, or new premium feature gates.
+
 ## Notes
 
 - Postgres runs on localhost:5432 with database/user/password: chudaco/chudaco/devpass.

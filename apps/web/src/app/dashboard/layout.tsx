@@ -4,6 +4,7 @@ import { prisma } from "@chudaco/db";
 import { auth, signOut } from "@/auth";
 import { DashboardNav } from "@/components/dashboard/nav";
 import { CURRENT_TERMS_VERSION } from "@/lib/terms";
+import { isPremium } from "@/lib/premium";
 
 function isAdminDiscordId(discordId: string | undefined): boolean {
   if (!discordId) return false;
@@ -30,6 +31,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   }
 
   const isAdmin = isAdminDiscordId(session?.user?.discordId);
+  const premium = await isPremium(discordId);
+  const whopUrl = process.env.NEXT_PUBLIC_WHOP_URL?.trim();
   return (
     <main className="min-h-screen bg-[#101014] text-[#F2F1F6]">
       <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 py-6 md:flex-row md:px-6">
@@ -37,6 +40,16 @@ export default async function DashboardLayout({ children }: { children: ReactNod
           <p className="font-heading text-2xl font-bold text-[#F2F1F6]">ChudACO</p>
           <p className="mt-1 text-xs text-[#605E72]">Discord-gated dashboard</p>
           <DashboardNav isAdmin={isAdmin} />
+          {!premium && whopUrl && (
+            <a
+              href={whopUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 block rounded-md px-3 py-2 text-sm text-[#B9C6FF] hover:underline"
+            >
+              Upgrade to Premium
+            </a>
+          )}
           <form
             className="mt-6"
             action={async () => {

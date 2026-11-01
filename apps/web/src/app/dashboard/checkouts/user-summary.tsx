@@ -5,6 +5,7 @@ import { Copy } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { resolveDropSummaryOrderPrice, type DropSummaryPricingRule } from "@/lib/drop-summary-pricing";
 import { toCurrency, type Checkout } from "@/lib/dashboard";
+import { copySummaryPng, downloadSummaryPng, renderSummaryPng } from "@/lib/drop-summary-image";
 
 type BackgroundStyle = "profile" | "day" | "night";
 
@@ -115,32 +116,13 @@ export default function UserCheckoutSummary({
     };
   }, [checkouts, pricingRules]);
 
-  async function createPng(): Promise<Blob> {
-    const node = recapRef.current;
-    if (!node) throw new Error("Recap is not ready yet.");
-    const { toBlob } = await import("html-to-image");
-    if (document.fonts?.ready) await document.fonts.ready;
-    const options = {
-      pixelRatio: 2,
-      backgroundColor: "#101116",
-      width: node.scrollWidth,
-      height: node.scrollHeight,
-    };
-    await toBlob(node, options);
-    const blob = await toBlob(node, options);
-    if (!blob) throw new Error("Could not render the recap image.");
-    return blob;
-  }
-
   async function copyImage() {
+    const node = recapRef.current;
+    if (!node) return;
     setBusy("copy");
     setMessage(null);
     try {
-      if (!navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
-        throw new Error("Image clipboard is not supported by this browser.");
-      }
-      const blob = await createPng();
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      await copySummaryPng(renderSummaryPng(node, "#101116"));
       setMessage({ text: "Recap image copied", error: false });
     } catch (error) {
       setMessage({ text: error instanceof Error ? error.message : "Could not copy image.", error: true });
@@ -150,16 +132,13 @@ export default function UserCheckoutSummary({
   }
 
   async function downloadImage() {
+    const node = recapRef.current;
+    if (!node) return;
     setBusy("download");
     setMessage(null);
     try {
-      const blob = await createPng();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `chudaco-my-recap-${summary.end.slice(0, 10)}-${background}.png`;
-      anchor.click();
-      URL.revokeObjectURL(url);
+      const image = await renderSummaryPng(node, "#101116");
+      downloadSummaryPng(image, `chudaco-my-recap-${summary.end.slice(0, 10)}-${background}.png`);
     } catch (error) {
       setMessage({ text: error instanceof Error ? error.message : "Could not download image.", error: true });
     } finally {

@@ -170,6 +170,18 @@ function normalizeCardType(value: string | null | undefined) {
   return type;
 }
 
+function formatCardNumber(value: string, cardType: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 12 || digits.length > 19) return value;
+  if (cardType === "amex" && digits.length === 15) {
+    return `${digits.slice(0, 4)} ${digits.slice(4, 10)} ${digits.slice(10)}`;
+  }
+  if (["visa", "mastercard", "discover"].includes(cardType)) {
+    return digits.replace(/(\d{4})(?=\d)/g, "$1 ");
+  }
+  return value;
+}
+
 async function getGoogleSheetRows(): Promise<string[][]> {
   const { spreadsheetId, sheetName, keyPath } = getGoogleSheetsConfig();
   const auth = new google.auth.GoogleAuth({
@@ -292,7 +304,7 @@ export async function GET(request: NextRequest) {
         );
 
         const cardNumber = matchingRow?.[5] ?? (selectedCard?.last4 ? `•••• ${selectedCard.last4}` : "");
-        const cardType = normalizeCardType(matchingRow?.[4] ?? selectedCard?.cardBrand ?? "");
+        const cardType = normalizeCardType(matchingRow?.[4] || selectedCard?.cardBrand || "");
         const cardMonth = formatExpMonth(matchingRow?.[6] ?? (selectedCard?.expMonth != null ? String(selectedCard.expMonth) : ""));
         const cardYear = formatExpYear(matchingRow?.[7] ?? (selectedCard?.expYear != null ? String(selectedCard.expYear) : ""));
         const cardholderName = matchingRow?.[3] ?? selectedCard?.cardholderName ?? "";
@@ -307,7 +319,7 @@ export async function GET(request: NextRequest) {
           quickTask: false,
           card: {
             holder: cardholderName || `${shippingName.firstName} ${shippingName.lastName}`.trim(),
-            number: cardNumber,
+            number: formatCardNumber(cardNumber, cardType),
             expiration: cardMonth && cardYear ? `${cardMonth}/${cardYear.slice(-2)}` : "",
             cvv,
             type: cardType,
