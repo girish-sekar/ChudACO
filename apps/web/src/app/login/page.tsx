@@ -84,7 +84,12 @@ export default function LoginPage() {
 
           {whopUrl && (
             <div className="mt-4 text-sm">
-              <a href={whopUrl} target="_blank" rel="noopener noreferrer" className="text-[#B9C6FF] hover:underline">
+              <a
+                href={whopUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex w-full items-center justify-center rounded-xl bg-[#FF8A3D] px-4 py-3 text-sm font-semibold text-[#080A12] transition hover:brightness-110"
+              >
                 Get Premium on Whop
               </a>
               <p className="mt-2 text-xs leading-relaxed text-[#9C9AAE]">
