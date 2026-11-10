@@ -84,6 +84,40 @@ passwords and must be handled securely.
 
 Run the focused export tests with `node --test apps/web/src/lib/shikari-export.test.cjs`.
 
+## Account Pulls
+
+Explicit retailer account, profile, and IMAP downloads from the Admin page record
+which accounts were actually included. Skipped rows, failed exports, empty files,
+the general CSV/JSON report, and loading the Admin page do not count as pulls.
+A pull means the server generated an export, not that the browser saved the file
+or that the accounts were run. Existing exports are not backfilled.
+
+The Accounts page displays retailer-specific last-pull times and paginated history,
+refreshing every 30 seconds and on focus. Users can independently disable account
+pull DMs there. History does not contain credentials or payment details.
+
+Tracked exports use authenticated admin POST requests with an `X-Export-Action`
+UUID. Retries must reuse that UUID and the same filters. Automatic companion
+downloads also share `X-Export-Parts: 2`. GET exports remain read-only and uncached.
+
+The existing ChudACO worker sends one summary DM per user per export action using
+`DISCORD_BOT_TOKEN` and the Accounts link from `AUTH_URL` or `NEXTAUTH_URL`. It polls
+every 15 seconds, waits for companion files (up to two minutes), and retries
+temporary failures up to five attempts. Blocked DMs are marked failed; opting out
+or losing Discord access skips delivery without affecting exports or history.
+Delivery is at-least-once: a crash after Discord accepts a DM but before the job is
+marked sent can cause a duplicate on recovery. No live test DMs are sent by tests.
+
+Before deploying updated web and worker builds, run
+`pnpm --filter @chudaco/db exec dotenv -e ../../.env -- prisma migrate deploy`,
+then rebuild the shared database package and both services. The migration adds
+pull history, export actions, the notification queue, and the default-on
+`notifyOnAccountPull` preference.
+
+Focused checks:
+`pnpm --filter web exec node --test src/lib/account-pulls.test.cjs src/lib/shikari-export.test.cjs src/lib/modular-workspace.test.cjs`
+and `pnpm --filter worker test`.
+
 ## Premium Detection
 
 Set `PREMIUM_ROLE_ID` to the premium role in `DISCORD_GUILD_ID`. The web app reuses

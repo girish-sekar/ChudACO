@@ -8,6 +8,7 @@ import { getGoogleSheetsConfig } from "@/lib/payment-info";
 import { findSheetCardRow } from "@/lib/sheet-card";
 import { withRetailerProfile } from "@/lib/aco-library";
 import { accountIdFilter } from "@/lib/admin-export";
+import { finishPullExport, type IncludedAccountPull } from "@/lib/account-pulls";
 
 const querySchema = z.object({
   retailer: z.string().trim().min(1).optional(),
@@ -276,6 +277,7 @@ export async function GET(request: NextRequest) {
     ).filter((login) => login.enabled !== false),
   }));
 
+  const included: IncludedAccountPull[] = [];
   const payload = Object.fromEntries(
     accountsWithEnabledLogins
       .filter((account) => {
@@ -289,6 +291,7 @@ export async function GET(request: NextRequest) {
             loadedAccount.retailerLogins.some((login) => login.retailer.toLowerCase() === retailer.toLowerCase()),
           ) ?? effectiveRetailerFilters[0];
         const account = withRetailerProfile(loadedAccount, selectedRetailer);
+        included.push({ id: loadedAccount.id, retailer: selectedRetailer });
         const selectedCard =
           account.retailerCards.find((card) => card.retailer.toLowerCase() === selectedRetailer.toLowerCase()) ??
           account.cardOnFile;
@@ -354,11 +357,13 @@ export async function GET(request: NextRequest) {
       }),
   );
 
-  return new NextResponse(JSON.stringify(payload, null, 2), {
+  return finishPullExport(request, authContext.discordId, "profiles", included, new NextResponse(JSON.stringify(payload, null, 2), {
     status: 200,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Content-Disposition": "attachment; filename=valor-accounts.json",
     },
-  });
+  }));
 }
+
+export { GET as POST };

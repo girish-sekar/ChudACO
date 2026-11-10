@@ -301,12 +301,12 @@ export default function DropSummaryDashboard() {
           <section className="rounded-xl border border-[#2C2D3A] bg-[#18181F] p-4">
             <h2 className="font-heading text-xl font-semibold">Discord source reconciliation</h2>
             <p className="mt-1 text-sm text-[#9C9AAE]">
-              When available, #success is the source of truth for summary totals. Database-only successes are excluded;
+              When available, #success_dev is the source of truth for summary totals. Database-only successes are excluded;
               Discord successes missing from the database are listed below.
             </p>
             {!data.reconciliation.configured ? (
               <p className="mt-3 text-sm text-[#605E72]">
-                Not configured: set DISCORD_SUCCESS_CHANNEL_ID (and DISCORD_BOT_TOKEN/DISCORD_GUILD_ID) to enable
+                Not configured: set DISCORD_SUCCESS_DEV_CHANNEL_ID (or DISCORD_SUCCESS_CHANNEL_ID), DISCORD_BOT_TOKEN, and DISCORD_GUILD_ID to enable
                 this.
               </p>
             ) : data.reconciliation.error ? (

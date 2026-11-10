@@ -51,6 +51,12 @@ async function handleBalance(interaction: ChatInputCommandInteraction): Promise<
   });
 }
 
+export async function sendAccountPullDM(discordId: string, content: string): Promise<void> {
+  if (!client.isReady()) throw new Error("Discord bot is not ready.");
+  const user = await client.users.fetch(discordId);
+  await user.send({ content, allowedMentions: { parse: [] } });
+}
+
 export async function startBot(): Promise<void> {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {

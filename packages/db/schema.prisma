@@ -16,6 +16,7 @@ model User {
   notifyOnSuccess     Boolean        @default(true)
   notifyOnFailure     Boolean        @default(true)
   notifyWeeklySummary Boolean        @default(false)
+  notifyOnAccountPull Boolean        @default(true)
   accountManagementMode String       @default("classic")
   termsVersion        String?
   termsAcceptedAt     DateTime?
@@ -33,6 +34,8 @@ model User {
   acoProfiles         AcoProfile[]
   acoImapConfigs      AcoImapConfig[]
   acoCards            AcoCard[]
+  accountPulls        AccountPull[]
+  pullNotifications   AccountPullNotification[]
 
   @@index([discordAccessStatus, discordCleanupAfter])
 }
@@ -151,8 +154,57 @@ model AcoAccount {
   retailerLogins    AcoRetailerLogin[]
   retailerCards     AcoRetailerCard[]
   retailerProfiles  AcoRetailerProfile[]
+  pulls             AccountPull[]
 
   @@unique([userId, accountNumber])
+}
+
+model AccountPullExport {
+  id              String   @id @default(cuid())
+  actionKey       String   @unique
+  adminDiscordId  String
+  requestHash     String
+  createdAt       DateTime @default(now())
+  parts           String[] @default([])
+  expectedParts   Int      @default(1)
+  completedAt     DateTime?
+  pulls           AccountPull[]
+  notifications   AccountPullNotification[]
+}
+
+model AccountPull {
+  id              String   @id @default(cuid())
+  exportId        String
+  export          AccountPullExport @relation(fields: [exportId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  acoAccountId    String?
+  acoAccount      AcoAccount? @relation(fields: [acoAccountId], references: [id], onDelete: SetNull)
+  accountKey      String
+  accountNumber   Int
+  retailer        String
+  exportType      String
+  createdAt       DateTime @default(now())
+
+  @@unique([exportId, accountKey, retailer, exportType])
+  @@index([userId, createdAt])
+}
+
+model AccountPullNotification {
+  id              String   @id @default(cuid())
+  exportId        String
+  export          AccountPullExport @relation(fields: [exportId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status          String   @default("pending")
+  attempts        Int      @default(0)
+  availableAt     DateTime @default(now())
+  lockedAt        DateTime?
+  sentAt          DateTime?
+  lastError       String?
+
+  @@unique([exportId, userId])
+  @@index([status, availableAt])
 }
 
 model AcoProfile {

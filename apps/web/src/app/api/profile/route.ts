@@ -8,6 +8,7 @@ const profileUpdateSchema = z
     notifyOnSuccess: z.boolean().optional(),
     notifyOnFailure: z.boolean().optional(),
     notifyWeeklySummary: z.boolean().optional(),
+    notifyOnAccountPull: z.boolean().optional(),
     accountManagementMode: z.enum(["classic", "modular"]).optional(),
   })
   .strict();
@@ -28,6 +29,7 @@ export async function GET() {
       notifyOnSuccess: true,
       notifyOnFailure: true,
       notifyWeeklySummary: true,
+      notifyOnAccountPull: true,
       accountManagementMode: true,
       createdAt: true,
     },
@@ -80,6 +82,7 @@ export async function PATCH(request: Request) {
       notifyOnSuccess: true,
       notifyOnFailure: true,
       notifyWeeklySummary: true,
+      notifyOnAccountPull: true,
       accountManagementMode: true,
       createdAt: true,
     },

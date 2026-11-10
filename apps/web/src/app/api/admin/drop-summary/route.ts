@@ -8,6 +8,7 @@ import {
 } from "@/lib/drop-summary-pricing";
 import {
   fetchDiscordSuccessMessages,
+  normalizeProfileName,
   parseUsernameFromProfile,
   resolveDiscordDisplayName,
   resolveDiscordUsername,
@@ -29,6 +30,13 @@ function toDayKey(date: Date): string {
 
 function normalizeRetailerKey(retailer: string): string {
   return retailer.trim().toLowerCase();
+}
+
+function profileUsernameCandidate(profile: string): string | null {
+  const parsed = parseUsernameFromProfile(profile);
+  if (parsed) return parsed;
+  const firstToken = normalizeProfileName(profile).split(/\s+/)[0];
+  return firstToken || null;
 }
 
 function normalizeItemName(item: string): string {
@@ -102,7 +110,7 @@ export async function GET(request: NextRequest) {
         user: {
           id: success.buyerKey,
           username: success.username,
-          discordId: success.mentionedUserId ?? "",
+          discordId: success.discordUserId ?? "",
         },
         acoAccount: success.account ?? success.matchedCheckout?.acoAccount ?? null,
         imageUrl: success.imageUrl,
@@ -229,7 +237,9 @@ export async function GET(request: NextRequest) {
   });
   const buyerDiscordIds = new Map(buyerUsers.map((user) => [user.id, user.discordId]));
   await Promise.all(topBuyers.map(async (buyer) => {
-    const discordId = buyerDiscordIds.get(buyer.userId);
+    const discordId = buyer.userId.startsWith("discord:")
+      ? buyer.userId.slice("discord:".length)
+      : buyerDiscordIds.get(buyer.userId);
     if (!discordId) return;
     buyer.username = (await resolveDiscordDisplayName(discordId)) ?? buyer.username;
   }));
@@ -357,11 +367,21 @@ async function reconcileWithDiscord(
           id: true,
           label: true,
           retailer: true,
-          user: { select: { id: true, username: true } },
+          user: { select: { id: true, username: true, discordId: true } },
         },
       })
     : [];
   const accountByProfile = new Map(accounts.map((account) => [account.botProfileName, account]));
+  const parsedUsernames = Array.from(new Set(messages
+    .map((message) => profileUsernameCandidate(message.profile))
+    .filter((username): username is string => Boolean(username))));
+  const profileUsers = parsedUsernames.length
+    ? await prisma.user.findMany({
+        where: { username: { in: parsedUsernames, mode: "insensitive" } },
+        select: { id: true, username: true, discordId: true },
+      })
+    : [];
+  const userByProfileName = new Map(profileUsers.map((user) => [user.username.toLowerCase(), user]));
   const unmappedBuyer = await prisma.user.findUnique({
     where: { discordId: UNMAPPED_BUYER_DISCORD_ID },
     select: { id: true, username: true },
@@ -374,7 +394,11 @@ async function reconcileWithDiscord(
     }
   }
 
-  const usernameResolutionCache = new Map<string, string | null>();
+  const usernameResolutionCache = new Map<string, {
+    discordId: string;
+    userId: string | null;
+    username: string | null;
+  } | null>();
   const mentionResolutionCache = new Map<string, { id: string; username: string } | null>();
   const gaps: Array<{
     messageId: string;
@@ -402,7 +426,7 @@ async function reconcileWithDiscord(
     userId: string | null;
     buyerKey: string;
     username: string;
-    mentionedUserId: string | null;
+    discordUserId: string | null;
     account: { id: string; label: string } | null;
     matchedCheckout: CheckoutForMatch | null;
   }> = [];
@@ -415,51 +439,55 @@ async function reconcileWithDiscord(
       ...reportedMessage,
       price: resolveDropSummaryOrderPrice(
         reportedMessage.item,
-        accountByProfile.get(reportedMessage.profile)?.retailer ?? "",
+        accountByProfile.get(reportedMessage.profile)?.retailer ?? reportedMessage.retailer ?? "",
         parseItemQuantity(reportedMessage.quantity),
         pricingRules,
         reportedMessage.price,
       ),
     };
     const account = accountByProfile.get(message.profile);
-    const parsedUsername = parseUsernameFromProfile(message.profile);
-    let userId = account?.user.id ?? null;
-    let username = account?.user.username ?? null;
+    const parsedUsername = profileUsernameCandidate(message.profile);
+    const profileUser = parsedUsername ? userByProfileName.get(parsedUsername.toLowerCase()) : null;
+    let userId = account?.user.id ?? profileUser?.id ?? null;
+    let username = account?.user.username ?? profileUser?.username ?? null;
+    let discordUserId: string | null = account?.user.discordId ?? profileUser?.discordId ?? null;
 
-    if (!account) {
-      const mentionedDiscordId = message.mentionedUser?.id;
-      if (mentionedDiscordId) {
-        if (!mentionResolutionCache.has(mentionedDiscordId)) {
-          const user = await prisma.user.findUnique({
-            where: { discordId: mentionedDiscordId },
-            select: { id: true, username: true },
-          });
-          mentionResolutionCache.set(mentionedDiscordId, user);
-        }
-        const mentionedUser = mentionResolutionCache.get(mentionedDiscordId);
-        userId = mentionedUser?.id ?? null;
-        username = mentionedUser?.username ?? null;
+    const mentionedDiscordId = message.mentionedUser?.id;
+    if (mentionedDiscordId) {
+      discordUserId = mentionedDiscordId;
+      if (!mentionResolutionCache.has(mentionedDiscordId)) {
+        const user = await prisma.user.findUnique({
+          where: { discordId: mentionedDiscordId },
+          select: { id: true, username: true },
+        });
+        mentionResolutionCache.set(mentionedDiscordId, user);
       }
+      const mentionedUser = mentionResolutionCache.get(mentionedDiscordId);
+      username = mentionedUser?.username
+        ?? message.mentionedUser?.displayName
+        ?? message.mentionedUser?.username
+        ?? parsedUsername;
+      userId = mentionedUser?.id ?? null;
+    }
 
-      if (!userId && parsedUsername) {
-        if (!usernameResolutionCache.has(parsedUsername)) {
-          const resolved = await resolveDiscordUsername(parsedUsername);
-          const user = resolved
-            ? await prisma.user.findUnique({
-                where: { discordId: resolved.discordId },
-                select: { id: true, username: true },
-              })
-            : null;
-          usernameResolutionCache.set(parsedUsername, user?.id ?? null);
-          if (user) {
-            username = user.username;
-          }
-        }
-        userId = usernameResolutionCache.get(parsedUsername) ?? null;
-        if (userId && !username) {
-          const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
-          username = user?.username ?? null;
-        }
+    if (parsedUsername && (!discordUserId || !userId)) {
+      if (!usernameResolutionCache.has(parsedUsername)) {
+        const resolved = await resolveDiscordUsername(parsedUsername);
+        const user = resolved
+          ? await prisma.user.findUnique({
+              where: { discordId: resolved.discordId },
+              select: { id: true, username: true },
+            })
+          : null;
+        usernameResolutionCache.set(parsedUsername, resolved
+          ? { discordId: resolved.discordId, userId: user?.id ?? null, username: user?.username ?? null }
+          : null);
+      }
+      const resolved = usernameResolutionCache.get(parsedUsername);
+      if (resolved) {
+        if (!mentionedDiscordId) discordUserId = resolved.discordId;
+        userId = resolved.userId ?? userId;
+        username = resolved.username ?? username ?? parsedUsername;
       }
     }
 
@@ -484,7 +512,7 @@ async function reconcileWithDiscord(
       ?? parsedUsername
       ?? null;
 
-    const retailer = account?.retailer ?? matchedCheckout?.retailer ?? null;
+    const retailer = account?.retailer ?? matchedCheckout?.retailer ?? message.retailer;
     const resolvedMessagePrice = resolveDropSummaryOrderPrice(
       message.item,
       retailer ?? "",
@@ -502,9 +530,10 @@ async function reconcileWithDiscord(
       ? resolvedMessagePrice
       : backfilledPrice;
     const messagePrice = orderPrice !== null && orderPrice > 0 ? orderPrice : null;
-    const buyerKey = message.mentionedUser?.id
-      ? `discord:${message.mentionedUser.id}`
-      : userId ?? unmappedBuyer?.id ?? `discord:${parsedUsername?.toLowerCase() ?? message.profile}`;
+    const buyerKey = userId
+      ?? (discordUserId ? `discord:${discordUserId}` : null)
+      ?? unmappedBuyer?.id
+      ?? `discord:${parsedUsername?.toLowerCase() ?? message.profile}`;
     const displayUsername = mentionedName
       ?? matchedCheckout?.user.username
       ?? username
@@ -525,7 +554,7 @@ async function reconcileWithDiscord(
       userId: gapUserId,
       buyerKey,
       username: displayUsername,
-      mentionedUserId: message.mentionedUser?.id ?? null,
+      discordUserId,
       account: account ? { id: account.id, label: account.label } : matchedCheckout?.acoAccount ?? null,
       matchedCheckout,
     });
@@ -545,7 +574,7 @@ async function reconcileWithDiscord(
       retailer,
       userId: gapUserId,
       username: gapUsername ?? message.profile,
-      resolved: Boolean(userId ?? (!message.mentionedUser ? unmappedBuyer?.id : null)),
+      resolved: Boolean(discordUserId ?? userId ?? (!message.mentionedUser ? unmappedBuyer?.id : null)),
     });
   }
 

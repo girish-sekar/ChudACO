@@ -1,4 +1,4 @@
-import { ascendedHeroesTechStickerUnitPrice } from "./known-item-pricing";
+import { ascendedHeroesTechStickerUnitPrice, knownTargetProductUnitPrice } from "./known-item-pricing";
 
 export type DropSummaryPricingRule = {
   category: string;
@@ -69,6 +69,10 @@ export function resolveDropSummaryPrice(
   retailer: string,
   rules: DropSummaryPricingRule[],
 ): number | null {
+  const knownTargetPrice = knownTargetProductUnitPrice(item);
+  if (knownTargetPrice !== null) {
+    return knownTargetPrice;
+  }
   if (is30thCelebrationBoosterBundle(item)) {
     return 31.99;
   }
@@ -99,6 +103,10 @@ export function resolveDropSummaryOrderPrice(
   rules: DropSummaryPricingRule[],
   reportedPrice?: number | null,
 ): number | null {
+  const knownTargetPrice = knownTargetProductUnitPrice(item);
+  if (knownTargetPrice !== null) {
+    return knownTargetPrice * quantity;
+  }
   if (is30thCelebrationBoosterBundle(item)) {
     return 31.99 * quantity;
   }

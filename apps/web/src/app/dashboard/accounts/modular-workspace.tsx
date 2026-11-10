@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
 import { ChevronRight, CircleCheck, CircleX, ContactRound, Copy, CreditCard, Download, Eye, EyeOff, FileUp, KeyRound, Link2, LoaderCircle, LockKeyhole, Mail, MapPin, Pencil, Plus, Search, Settings2, Store, Trash2, Upload, X } from "lucide-react";
 import styles from "./modular-workspace.module.css";
+import { AccountPullActivity, latestAccountPull, type AccountPullsResponse } from "./pull-activity";
 import { CARD_BRAND_OPTIONS } from "@/lib/card-brand";
 import { EMAIL_PROVIDER_HOSTS, imapHostForProvider } from "@/lib/email-providers";
 import {
@@ -263,6 +264,7 @@ export function ModularAccountsWorkspace({
   const { data: profilesData, error: profilesError, mutate: mutateProfiles } = useSWR<{ data: AcoProfileEntry[] }>("/api/aco-profiles", fetchJson);
   const { data: cardsData, error: cardsError, mutate: mutateCards } = useSWR<{ data: AcoCardEntry[] }>("/api/aco-cards", fetchJson);
   const { data: imapData, error: imapError, mutate: mutateImap } = useSWR<{ data: AcoImapConfigEntry[] }>("/api/aco-imap-configs", fetchJson);
+  const { data: pullsData, error: pullsError, mutate: mutatePulls } = useSWR<AccountPullsResponse>("/api/account-pulls", fetchJson, { refreshInterval: 30000, revalidateOnFocus: true });
   const profiles = profilesData?.data ?? [];
   const cards = cardsData?.data ?? [];
   const imapConfigs = imapData?.data ?? [];
@@ -1004,6 +1006,8 @@ export function ModularAccountsWorkspace({
         </div>
       </header>
 
+      <AccountPullActivity data={pullsData} error={Boolean(pullsError)} onRefresh={mutatePulls} />
+
       {!loading && !loadError && librariesLoaded ? (
         <details className="border-y border-[#2C2D3A] py-3">
           <summary className="flex cursor-pointer flex-wrap items-baseline justify-between gap-2">
@@ -1308,6 +1312,10 @@ export function ModularAccountsWorkspace({
                             {logins.map((login) => (
                               <li key={login.id} className={login.enabled ? "" : "text-[#605E72]"}>
                                 {login.retailer} · <span className="text-xs text-[#9C9AAE]">{login.loginEmail}</span>{login.enabled ? "" : " (disabled)"}
+                                {(() => {
+                                  const pull = latestAccountPull(pullsData?.latest ?? [], account.id, login.retailer);
+                                  return pull ? <div className="text-xs text-[#8FB9FF]">Last pulled <time dateTime={pull.createdAt}>{new Date(pull.createdAt).toLocaleString()}</time></div> : null;
+                                })()}
                               </li>
                             ))}
                           </ul>

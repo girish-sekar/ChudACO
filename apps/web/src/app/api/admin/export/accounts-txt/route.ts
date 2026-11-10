@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminDiscordIds, getAuthenticatedContext } from "@/lib/api-auth";
 import { accountIdFilter } from "@/lib/admin-export";
+import { finishPullExport, type IncludedAccountPull } from "@/lib/account-pulls";
 
 const querySchema = z.object({
   category: z.string().trim().toLowerCase().optional(),
@@ -187,6 +188,7 @@ export async function GET(request: NextRequest) {
     where: { ...where, ...accountIdFilter(request) },
     orderBy: [{ retailer: "asc" }, { label: "asc" }],
     select: {
+      id: true,
       retailer: true,
       loginEmail: true,
       email: true,
@@ -215,6 +217,7 @@ export async function GET(request: NextRequest) {
     },
   });
 
+  const included: IncludedAccountPull[] = [];
   const lines = accounts
     .flatMap((account) => {
       const entries =
@@ -279,6 +282,10 @@ export async function GET(request: NextRequest) {
           );
         })
         .map((entry) => {
+          const includeLine = (line: string) => {
+            included.push({ id: account.id, retailer: entry.retailer });
+            return line;
+          };
           const retailLoginPassword = parseEncryptedValue(
             entry.encryptedLoginPassword,
             entry.loginPasswordIv,
@@ -295,7 +302,7 @@ export async function GET(request: NextRequest) {
               if (!imapEmail || !imapPassword || /[:\r\n]/.test(imapEmail) || /[\r\n]/.test(imapPassword)) {
                 return null;
               }
-              return `${imapEmail}:${imapPassword}`;
+              return includeLine(`${imapEmail}:${imapPassword}`);
             }
 
             const imapPassword = parseEncryptedValue(account.encryptedPassword, account.encryptionIv);
@@ -303,7 +310,7 @@ export async function GET(request: NextRequest) {
               return null;
             }
 
-            return `${account.imapHost};${account.email};${imapPassword}`;
+            return includeLine(`${account.imapHost};${account.email};${imapPassword}`);
           }
 
           if (!entry.loginEmail) {
@@ -311,14 +318,14 @@ export async function GET(request: NextRequest) {
           }
 
           if (category === "stellar" && isCostcoRetailer(entry.retailer)) {
-            return `${entry.loginEmail};${retailLoginPassword ?? ""}`;
+            return includeLine(`${entry.loginEmail};${retailLoginPassword ?? ""}`);
           }
 
           if (category === "valor") {
             if (!retailLoginPassword || /[:\r\n]/.test(entry.loginEmail) || /[\r\n]/.test(retailLoginPassword)) {
               return null;
             }
-            return `${entry.loginEmail}:${retailLoginPassword}`;
+            return includeLine(`${entry.loginEmail}:${retailLoginPassword}`);
           }
 
           const imapPassword = parseEncryptedValue(account.encryptedPassword, account.encryptionIv);
@@ -327,7 +334,7 @@ export async function GET(request: NextRequest) {
           }
 
           const provider = normalizeProvider(account.emailProvider, account.imapHost, account.email);
-          return `${entry.loginEmail}:::${retailLoginPassword ?? ""}:::${account.email}:::${imapPassword}:::${provider}`;
+          return includeLine(`${entry.loginEmail}:::${retailLoginPassword ?? ""}:::${account.email}:::${imapPassword}:::${provider}`);
         })
         .filter((line): line is string => line !== null);
     })
@@ -347,11 +354,13 @@ export async function GET(request: NextRequest) {
             ? "valor-accounts.txt"
             : "admin-account-export.txt";
 
-  return new NextResponse(outputLines.join("\n"), {
+  return finishPullExport(request, authContext.discordId, exportMode === "imap" ? "imap" : "accounts", included, new NextResponse(outputLines.join("\n"), {
     status: 200,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Content-Disposition": `attachment; filename=${filename}`,
     },
-  });
+  }));
 }
+
+export { GET as POST };

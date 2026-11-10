@@ -7,7 +7,7 @@ import type { DropSummaryPricingRule } from "@/lib/drop-summary-pricing";
 import { StatusPill } from "@/components/dashboard/status-pill";
 import UserCheckoutSummary from "./user-summary";
 
-type CheckoutsResponse = { data: Checkout[] };
+type CheckoutsResponse = { data: Checkout[]; summarySuccesses?: Checkout[] };
 type ProfileResponse = { data: { username: string; discordUsername?: string; avatarUrl: string | null } };
 type PricingRulesResponse = { data: DropSummaryPricingRule[] };
 type CheckoutView = "summary" | "details";
@@ -58,6 +58,12 @@ export default function CheckoutsPage() {
   const { data: profileData } = useSWR<ProfileResponse>("/api/profile", fetchJson);
   const { data: pricingData } = useSWR<PricingRulesResponse>("/api/pricing", fetchJson);
   const checkouts = useMemo(() => data?.data ?? [], [data]);
+  const summaryCheckouts = useMemo(() => data
+    ? [
+        ...(data.summarySuccesses ?? checkouts.filter((checkout) => checkout.status === "success")),
+        ...checkouts.filter((checkout) => checkout.status !== "success"),
+      ]
+    : [], [data, checkouts]);
   const filteredCheckouts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return checkouts.filter((checkout) => {
@@ -160,7 +166,7 @@ export default function CheckoutsPage() {
           {error ? <p className="text-sm text-[#FF5D5D]">Failed to load your checkouts.</p> : null}
           {data ? (
             <UserCheckoutSummary
-              checkouts={checkouts}
+              checkouts={summaryCheckouts}
               username={profileData?.data.discordUsername ?? profileData?.data.username ?? "Your Discord account"}
               avatarUrl={profileData?.data.avatarUrl ?? null}
               pricingRules={pricingData?.data ?? []}

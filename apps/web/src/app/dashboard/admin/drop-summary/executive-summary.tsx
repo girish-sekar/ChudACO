@@ -344,7 +344,7 @@ export default function ExecutiveSummary({ data }: { data: DropSummaryResponse }
           </a>
           <span className="pb-1 text-right text-[10px] text-[#9298A8]">
             {data.sourceOfTruth === "discord"
-              ? `#success source · ${data.reconciliation.configured ? data.reconciliation.databaseOnlyCount : 0} DB-only success(es) omitted`
+              ? `#success-dev source · ${data.reconciliation.configured ? data.reconciliation.databaseOnlyCount : 0} DB-only success(es) omitted`
               : "Database source · Discord unavailable"}
           </span>
         </div>

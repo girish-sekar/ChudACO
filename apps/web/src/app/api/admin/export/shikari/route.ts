@@ -8,6 +8,7 @@ import { getGoogleSheetsConfig } from "@/lib/payment-info";
 import { findSheetCardRow } from "@/lib/sheet-card";
 import { withRetailerProfile } from "@/lib/aco-library";
 import { resolveExportEmail } from "@/lib/export-email";
+import { finishPullExport, type IncludedAccountPull } from "@/lib/account-pulls";
 
 const querySchema = z.object({
   mode: z.enum(["accounts", "imap", "profiles"]).default("accounts"),
@@ -97,6 +98,7 @@ export async function GET(request: NextRequest) {
     },
   });
 
+  const included: IncludedAccountPull[] = [];
   if (parsed.data.mode === "profiles") {
     const header = "profile_name,first_name,last_name,email,phone_num,cc_number,cc_exp_month,cc_exp_year,cc_cvv,shipping_street,shipping_street_2,shipping_city,shipping_state,shipping_zip_code,shipping_country,billing_first_name,billing_last_name,billing_street,billing_street_2,billing_city,billing_state,billing_zip_code,billing_country";
     const rows = new Set<string>();
@@ -150,6 +152,7 @@ export async function GET(request: NextRequest) {
             formatState(sameBilling ? account.shippingState : account.billingState),
             (sameBilling ? account.shippingZip : account.billingZip) ?? "", "US",
           ].map(csvField).join(","));
+          included.push({ id: account.id, retailer: entry.retailer });
         }
       }
     } catch {
@@ -158,7 +161,7 @@ export async function GET(request: NextRequest) {
     if (rows.size === 0 && skippedProfiles.length > 0) {
       return NextResponse.json({ error: skippedProfiles[0] }, { status: 400 });
     }
-    return new NextResponse([header, ...rows].join("\r\n"), {
+    return finishPullExport(request, authContext.discordId, "profiles", included, new NextResponse([header, ...rows].join("\r\n"), {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": 'attachment; filename="shikari-profiles.csv"',
@@ -168,7 +171,7 @@ export async function GET(request: NextRequest) {
           ? encodeURIComponent(`Downloaded complete profiles. Skipped ${skippedProfiles.length} incomplete profile(s). ${skippedProfiles[0]}`)
           : "",
       },
-    });
+    }));
   }
 
   const lines = new Set<string>();
@@ -187,6 +190,7 @@ export async function GET(request: NextRequest) {
         const password = decryptPassword(account.encryptedPassword, account.encryptionIv);
         if (!password) continue;
         lines.add([account.imapHost, String(account.imapPort), account.email, password].map(csvField).join(","));
+        included.push(...entries.map((entry) => ({ id: account.id, retailer: entry.retailer })));
       } else {
         for (const entry of entries) {
           if (!entry.loginEmail) continue;
@@ -196,6 +200,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: "A retailer credential cannot be represented in username:password format." }, { status: 400 });
           }
           lines.add(`${entry.loginEmail}:${password}`);
+          included.push({ id: account.id, retailer: entry.retailer });
         }
       }
     }
@@ -205,11 +210,13 @@ export async function GET(request: NextRequest) {
 
   const isImap = parsed.data.mode === "imap";
   const rows = isImap ? ["imap_server,port,username,password", ...lines] : Array.from(lines);
-  return new NextResponse(rows.join("\r\n"), {
+  return finishPullExport(request, authContext.discordId, parsed.data.mode, included, new NextResponse(rows.join("\r\n"), {
     headers: {
       "Content-Type": isImap ? "text/csv; charset=utf-8" : "text/plain; charset=utf-8",
       "Content-Disposition": `attachment; filename="shikari-${isImap ? "imap.csv" : "accounts.txt"}"`,
       "Cache-Control": "no-store",
     },
-  });
+  }));
 }
+
+export { GET as POST };

@@ -1,4 +1,4 @@
-import { ascendedHeroesTechStickerUnitPrice } from "./known-item-pricing";
+import { ascendedHeroesTechStickerUnitPrice, normalizeKnownItemName } from "./known-item-pricing";
 
 const DISCORD_EPOCH = 1420070400000n;
 
@@ -59,9 +59,18 @@ export type ParsedSuccessMessage = {
   item: string;
   quantity: string;
   price: number | null;
+  retailer: string | null;
   imageUrl: string | null;
   mentionedUser: { id: string; username: string | null; displayName: string | null } | null;
 };
+
+type SuccessFetchResult = { messages: ParsedSuccessMessage[]; scanned: number; error: string | null };
+
+const SUCCESS_CACHE_TTL_MS = 30_000;
+const MAX_RATE_LIMIT_RETRIES = 2;
+const CHANNEL_MATCH_WINDOW_MS = 10 * 60 * 1000;
+const successMessageCache = new Map<string, { expiresAt: number; result: SuccessFetchResult }>();
+const successMessageRequests = new Map<string, Promise<SuccessFetchResult>>();
 
 function fieldsMap(embed: DiscordEmbed): Map<string, string> {
   const map = new Map<string, string>();
@@ -72,25 +81,27 @@ function fieldsMap(embed: DiscordEmbed): Map<string, string> {
 }
 
 export function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage | null {
-  const embed = message.embeds?.find((candidate) => /successful checkout/i.test(candidate.title ?? ""));
+  const embed = message.embeds?.find((candidate) => /^(?:successful checkout|checked out)\b/i.test(candidate.title ?? ""));
   if (!embed) {
     return null;
   }
 
   const fields = fieldsMap(embed);
-  const profile = fields.get("profile name");
-  const item = fields.get("item");
+  const profile = fields.get("profile name") ?? fields.get("profile");
+  const rawItem = fields.get("item") ?? fields.get("product");
+  const item = rawItem ? normalizeKnownItemName(rawItem) : "";
   const rawImageUrl = embed.thumbnail?.url ?? embed.image?.url ?? null;
   const imageUrl = rawImageUrl && /^https?:\/\//i.test(rawImageUrl) ? rawImageUrl : null;
   const priceRaw = fields.get("price");
   const parsedPrice = priceRaw ? parsePriceToNumber(priceRaw) : null;
-  const quantity = fields.get("quantity") ?? "0";
+  const retailer = fields.get("retailer") ?? fields.get("site") ?? fields.get("website") ?? null;
+  const quantity = fields.get("quantity") ?? fields.get("qty") ?? "0";
   const parsedQuantity = Number.parseInt(quantity, 10);
   const itemQuantity = Number.isSafeInteger(parsedQuantity) && parsedQuantity > 0 ? parsedQuantity : 1;
   const unitPrice = item ? knownEtbUnitPrice(item) ?? ascendedHeroesTechStickerUnitPrice(item) : null;
   const price = parsedPrice ?? (unitPrice === null ? null : unitPrice * itemQuantity);
 
-  if (!profile || !item) {
+  if (!profile) {
     return null;
   }
 
@@ -98,7 +109,7 @@ export function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage
   const mentions = message.mentions ?? [];
   const mentionedUser = mentions.find((user) =>
     [user.username, user.global_name].some((name) => name?.trim().toLowerCase() === profileUsername),
-  ) ?? mentions[0] ?? null;
+  ) ?? null;
 
   return {
     messageId: message.id,
@@ -107,6 +118,7 @@ export function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage
     item,
     quantity,
     price,
+    retailer,
     imageUrl,
     mentionedUser: mentionedUser
       ? {
@@ -121,36 +133,38 @@ export function parseSuccessEmbed(message: DiscordMessage): ParsedSuccessMessage
 const MAX_PAGES = 20;
 const PAGE_SIZE = 100;
 
-// Fetches and parses "Successful Checkout" embeds posted in the configured Discord
-// channel within [from, to]. Paginates backwards from `to` until the range is covered.
-export async function fetchDiscordSuccessMessages(
+async function fetchChannelSuccessMessages(
   from: Date,
   to: Date,
-): Promise<{ messages: ParsedSuccessMessage[]; scanned: number; error: string | null }> {
-  const token = process.env.DISCORD_BOT_TOKEN?.trim();
-  const channelId = process.env.DISCORD_SUCCESS_CHANNEL_ID?.trim();
-
-  if (!token || !channelId) {
-    return { messages: [], scanned: 0, error: "not_configured" };
-  }
-
+  channelId: string,
+  token: string,
+): Promise<SuccessFetchResult> {
   const results: ParsedSuccessMessage[] = [];
   let before = snowflakeFromDate(new Date(to.getTime() + 1000));
   let scanned = 0;
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
     const url = `https://discord.com/api/v10/channels/${channelId}/messages?limit=${PAGE_SIZE}&before=${before}`;
-    const response = await fetch(url, {
-      headers: { Authorization: `Bot ${token}` },
-      cache: "no-store",
-    });
+    let response: Response | null = null;
+    for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt += 1) {
+      response = await fetch(url, {
+        headers: { Authorization: `Bot ${token}` },
+        cache: "no-store",
+      });
+      if (response.status !== 429) break;
 
-    if (!response.ok) {
-      return {
-        messages: results,
-        scanned,
-        error: `discord_api_${response.status}`,
-      };
+      const payload = await response.json().catch(() => null) as { retry_after?: number } | null;
+      if (attempt === MAX_RATE_LIMIT_RETRIES) break;
+      const headerRetryAfter = Number(response.headers.get("retry-after"));
+      const retryAfter = Number(payload?.retry_after ?? headerRetryAfter);
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.ceil(retryAfter * 1000) + 100
+        : 1100;
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+
+    if (!response?.ok) {
+      return { messages: results, scanned, error: `discord_api_${response?.status ?? "unknown"}` };
     }
 
     const batch = (await response.json()) as DiscordMessage[];
@@ -162,28 +176,119 @@ export async function fetchDiscordSuccessMessages(
 
     for (const message of batch) {
       const timestamp = new Date(message.timestamp);
-      if (timestamp < from) {
-        continue;
-      }
-      if (timestamp > to) {
-        continue;
-      }
+      if (timestamp < from || timestamp > to) continue;
       const parsed = parseSuccessEmbed(message);
-      if (parsed) {
-        results.push(parsed);
-      }
+      if (parsed) results.push(parsed);
     }
 
     const oldest = batch[batch.length - 1];
     const oldestTimestamp = new Date(oldest.timestamp);
-    if (oldestTimestamp < from || batch.length < PAGE_SIZE) {
-      break;
-    }
-
+    if (oldestTimestamp < from || batch.length < PAGE_SIZE) break;
     before = oldest.id;
   }
 
   return { messages: results, scanned, error: null };
+}
+
+function comparableItem(item: string): string {
+  return normalizeKnownItemName(item)
+    .replace(/^\[([\s\S]+)\]\(https?:\/\/[^)]+\)$/i, "$1")
+    .replace(/&#(\d+);/g, (_, code: string) => String.fromCharCode(Number(code)))
+    .replace(/&#x([\da-f]+);/gi, (_, code: string) => String.fromCharCode(parseInt(code, 16)))
+    .replace(/^\(?\d+\)?\s*/, "")
+    .trim()
+    .toLowerCase();
+}
+
+function enrichPrimaryMessages(
+  primary: ParsedSuccessMessage[],
+  legacy: ParsedSuccessMessage[],
+): ParsedSuccessMessage[] {
+  const usedLegacyMessages = new Set<string>();
+
+  return primary.map((message) => {
+    if (message.item && message.price !== null && message.price > 0) return message;
+
+    const profile = normalizeProfileName(message.profile).toLowerCase();
+    const match = legacy
+      .filter((candidate) => {
+        if (usedLegacyMessages.has(candidate.messageId)) return false;
+        if (normalizeProfileName(candidate.profile).toLowerCase() !== profile) return false;
+        if (Math.abs(candidate.occurredAt.getTime() - message.occurredAt.getTime()) > CHANNEL_MATCH_WINDOW_MS) return false;
+        return !message.item || !candidate.item || comparableItem(message.item) === comparableItem(candidate.item);
+      })
+      .sort((first, second) =>
+        Math.abs(first.occurredAt.getTime() - message.occurredAt.getTime())
+        - Math.abs(second.occurredAt.getTime() - message.occurredAt.getTime()),
+      )[0];
+
+    if (match) usedLegacyMessages.add(match.messageId);
+    const item = message.item || match?.item || "(Item unavailable)";
+    const price = message.price !== null && message.price > 0
+      ? message.price
+      : match?.price !== null && match?.price !== undefined && match.price > 0
+        ? match.price
+        : message.price;
+
+    return {
+      ...message,
+      item,
+      quantity: message.quantity && message.quantity !== "0" ? message.quantity : match?.quantity ?? message.quantity,
+      price,
+      retailer: message.retailer ?? match?.retailer ?? null,
+      imageUrl: message.imageUrl ?? match?.imageUrl ?? null,
+      mentionedUser: message.mentionedUser ?? match?.mentionedUser ?? null,
+    };
+  });
+}
+
+// Fetches success-dev as the source of truth; matching legacy messages only fill missing fields.
+export async function fetchDiscordSuccessMessages(
+  from: Date,
+  to: Date,
+): Promise<SuccessFetchResult> {
+  const token = process.env.DISCORD_BOT_TOKEN?.trim();
+  const primaryChannelId = process.env.DISCORD_SUCCESS_DEV_CHANNEL_ID?.trim()
+    || process.env.DISCORD_SUCCESS_CHANNEL_ID?.trim();
+  const legacyChannelId = process.env.DISCORD_SUCCESS_CHANNEL_ID?.trim();
+
+  if (!token || !primaryChannelId) {
+    return { messages: [], scanned: 0, error: "not_configured" };
+  }
+
+  const cacheKey = `${primaryChannelId}:${legacyChannelId ?? ""}:${from.toISOString()}:${to.toISOString()}`;
+  const cached = successMessageCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.result;
+
+  const pending = successMessageRequests.get(cacheKey);
+  if (pending) return pending;
+
+  const request = (async (): Promise<SuccessFetchResult> => {
+    const primary = await fetchChannelSuccessMessages(from, to, primaryChannelId, token);
+    if (primary.error) return primary;
+
+    const needsEnrichment = primary.messages.some((message) => !message.item || message.price === null);
+    if (!needsEnrichment || !legacyChannelId || legacyChannelId === primaryChannelId) return primary;
+
+    const legacy = await fetchChannelSuccessMessages(from, to, legacyChannelId, token);
+    const messages = enrichPrimaryMessages(primary.messages, legacy.error ? [] : legacy.messages);
+    return {
+      messages,
+      scanned: primary.scanned + (legacy.error ? 0 : legacy.scanned),
+      error: null,
+    };
+  })();
+
+  successMessageRequests.set(cacheKey, request);
+  try {
+    const result = await request;
+    if (!result.error) {
+      successMessageCache.set(cacheKey, { expiresAt: Date.now() + SUCCESS_CACHE_TTL_MS, result });
+    }
+    return result;
+  } finally {
+    successMessageRequests.delete(cacheKey);
+  }
 }
 
 export type ResolvedGuildMember = { discordId: string } | null;

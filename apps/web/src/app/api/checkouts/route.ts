@@ -2,7 +2,12 @@ import { prisma } from "@chudaco/db";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuthenticatedContext } from "@/lib/api-auth";
-import { fetchDiscordSuccessMessages } from "@/lib/discord-success";
+import type { Checkout as DashboardCheckout } from "@/lib/dashboard";
+import {
+  fetchDiscordSuccessMessages,
+  normalizeProfileName,
+  parseUsernameFromProfile,
+} from "@/lib/discord-success";
 
 const IMAGE_MATCH_WINDOW_MS = 10 * 60 * 1000;
 
@@ -87,16 +92,21 @@ export async function GET(request: NextRequest) {
     for (const account of accounts) profileByAccountId.set(account.id, account.botProfileName);
   }
 
+  const now = new Date();
+  const rangeStart = query.data.from
+    ? new Date(query.data.from)
+    : checkouts.length
+      ? new Date(Math.min(...checkouts.map((checkout) => checkout.occurredAt.getTime())))
+      : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const rangeEnd = query.data.to
+    ? new Date(query.data.to)
+    : checkouts.length
+      ? new Date(Math.max(...checkouts.map((checkout) => checkout.occurredAt.getTime())))
+      : now;
+  const { messages, error: discordError } = await fetchDiscordSuccessMessages(rangeStart, rangeEnd);
+
   const imageByCheckoutId = new Map<string, string>();
   if (checkouts.length > 0 && profileByAccountId.size > 0) {
-    const rangeStart = query.data.from
-      ? new Date(query.data.from)
-      : new Date(Math.min(...checkouts.map((checkout) => checkout.occurredAt.getTime())));
-    const rangeEnd = query.data.to
-      ? new Date(query.data.to)
-      : new Date(Math.max(...checkouts.map((checkout) => checkout.occurredAt.getTime())));
-    const { messages } = await fetchDiscordSuccessMessages(rangeStart, rangeEnd);
-
     for (const checkout of checkouts) {
       if (checkout.status !== "success" || !checkout.acoAccountId) continue;
       const profile = profileByAccountId.get(checkout.acoAccountId);
@@ -116,11 +126,72 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  let summarySuccesses: DashboardCheckout[] = checkouts
+    .filter((checkout) => checkout.status === "success")
+    .map((checkout) => ({
+      ...checkout,
+      price: checkout.price.toString(),
+      occurredAt: checkout.occurredAt.toISOString(),
+      imageUrl: null,
+    }));
+  if (!discordError) {
+    const storedUser = await prisma.user.findUnique({
+      where: { id: authContext.userId },
+      select: { username: true },
+    });
+    const currentNames = new Set([
+      authContext.discordUsername?.trim().toLowerCase(),
+      storedUser?.username.trim().toLowerCase(),
+    ].filter((name): name is string => Boolean(name)));
+
+    const matchedMessages = messages.filter((message) => {
+      if (message.mentionedUser?.id === authContext.discordId) return true;
+      const normalizedProfile = normalizeProfileName(message.profile).toLowerCase();
+      const profileName = parseUsernameFromProfile(message.profile)?.toLowerCase()
+        ?? normalizedProfile.split(/\s+/)[0];
+      return currentNames.has(profileName)
+        || Array.from(currentNames).some((name) => normalizedProfile.startsWith(`${name} `));
+    });
+    const accounts = matchedMessages.length
+      ? await prisma.acoAccount.findMany({
+          where: {
+            userId: authContext.userId,
+            botProfileName: { in: Array.from(new Set(matchedMessages.map((message) => message.profile))) },
+          },
+          select: { botProfileName: true, retailer: true },
+        })
+      : [];
+    const retailerByProfile = new Map(accounts.map((account) => [account.botProfileName, account.retailer]));
+
+    summarySuccesses = (query.data.status && query.data.status !== "success" ? [] : matchedMessages)
+      .map((message) => {
+        const retailer = retailerByProfile.get(message.profile) ?? message.retailer ?? "";
+        return {
+          id: message.messageId,
+          userId: authContext.userId,
+          retailer,
+          item: message.item,
+          qtyLabel: message.quantity,
+          price: message.price?.toFixed(2) ?? "0.00",
+          status: "success" as const,
+          trackingNumber: null,
+          orderNumber: null,
+          ticketCode: message.messageId,
+          occurredAt: message.occurredAt.toISOString(),
+          imageUrl: message.imageUrl,
+        };
+      })
+      .filter((checkout) => !query.data.q
+        || checkout.item.toLowerCase().includes(query.data.q.toLowerCase())
+        || checkout.retailer.toLowerCase().includes(query.data.q.toLowerCase()));
+  }
+
   return NextResponse.json({
     data: checkouts.map((checkout) => ({
       ...checkout,
       price: checkout.price.toString(),
       imageUrl: imageByCheckoutId.get(checkout.id) ?? null,
     })),
+    summarySuccesses,
   });
 }

@@ -12,6 +12,8 @@ const links = [
   { href: "/dashboard/accounts", label: "Accounts" },
   { href: "/dashboard/admin", label: "Admin", adminOnly: true },
   { href: "/dashboard/admin/drop-summary", label: "Drop Summary", adminOnly: true },
+  { href: "/dashboard/admin/email-export", label: "Email Export", adminOnly: true },
+  { href: "/dashboard/admin/profile-convert", label: "Profile Converter", adminOnly: true },
   { href: "/dashboard/profile", label: "Profile" },
 ];
 

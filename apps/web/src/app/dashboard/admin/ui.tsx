@@ -219,6 +219,8 @@ export default function AdminDashboard() {
   }
 
   async function exportAccountsTxt(category: "hayha" | "stellar" | "valor", mode?: "default" | "imap") {
+    const actionId = crypto.randomUUID();
+    const hasCompanion = category === "stellar" && selectedRetailers.some((retailer) => retailer.trim().toLowerCase() === "costco");
     setExportingCategory(category === "valor" && mode === "imap" ? "valor-imap" : category);
     setExportError(null);
 
@@ -241,6 +243,8 @@ export default function AdminDashboard() {
 
       const response = await fetch(`/api/admin/export/accounts-txt?${params.toString()}`, {
         credentials: "include",
+        method: "POST",
+        headers: { "X-Export-Action": actionId, "X-Export-Parts": hasCompanion ? "2" : "1" },
       });
 
       if (!response.ok) {
@@ -303,6 +307,8 @@ export default function AdminDashboard() {
       }
       const response = await fetch(`/api/admin/export/shikari?${params.toString()}`, {
         credentials: "include",
+        method: "POST",
+        headers: { "X-Export-Action": crypto.randomUUID() },
       });
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -341,7 +347,7 @@ export default function AdminDashboard() {
 
       const response = await fetch(
         `/api/admin/export/pokemon-center-json${params.toString() ? `?${params.toString()}` : ""}`,
-        { credentials: "include" },
+        { credentials: "include", method: "POST", headers: { "X-Export-Action": crypto.randomUUID() } },
       );
 
       if (!response.ok) {
@@ -381,7 +387,7 @@ export default function AdminDashboard() {
 
       const response = await fetch(
         `/api/admin/export/target-json${params.toString() ? `?${params.toString()}` : ""}`,
-        { credentials: "include" },
+        { credentials: "include", method: "POST", headers: { "X-Export-Action": crypto.randomUUID() } },
       );
 
       if (!response.ok) {
@@ -424,7 +430,7 @@ export default function AdminDashboard() {
 
       const response = await fetch(
         `/api/admin/export/valor-json${params.toString() ? `?${params.toString()}` : ""}`,
-        { credentials: "include" },
+        { credentials: "include", method: "POST", headers: { "X-Export-Action": crypto.randomUUID() } },
       );
 
       if (!response.ok) {
@@ -558,14 +564,28 @@ export default function AdminDashboard() {
           <h1 className="font-heading text-3xl font-bold">Admin</h1>
           <p className="mt-1 text-sm text-[#9C9AAE]">Cross-user checkout, billing, and export controls.</p>
         </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 self-start">
+          <a
+            href="/dashboard/admin/email-export"
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
+          >
+            Email export
+          </a>
+          <a
+            href="/dashboard/admin/profile-convert"
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
+          >
+            Profile converter
+          </a>
           <button
             type="button"
             onClick={exportCsv}
-            className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-[#2C2D3A] px-3 py-2 text-sm text-[#9C9AAE] hover:text-[#F2F1F6]"
           >
             <Download size={16} aria-hidden="true" className="shrink-0" />
             Export data (CSV)
           </button>
+        </div>
       </header>
 
       <section aria-label="Bot provider exports" className="grid min-w-0 grid-cols-1 gap-6 border-y border-[#2C2D3A] py-4 sm:grid-cols-2 xl:grid-cols-4">

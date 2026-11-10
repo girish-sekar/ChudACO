@@ -41,6 +41,7 @@ function setup() {
     swr: { default: (url) => ({ data: { data: data[url] }, mutate: async () => {} }) },
     "lucide-react": require("lucide-react"),
     "./modular-workspace.module.css": { default: new Proxy({}, { get: (_, key) => String(key) }) },
+    "./pull-activity": { AccountPullActivity: () => null, latestAccountPull: () => undefined },
     "@/lib/card-brand": { CARD_BRAND_OPTIONS: ["Visa", "Mastercard"] },
     "@/lib/email-providers": { EMAIL_PROVIDER_HOSTS: { Gmail: "imap.gmail.com" }, imapHostForProvider: () => "imap.gmail.com" },
     "@/lib/dashboard": { fetchJson: async () => ({}) },

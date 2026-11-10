@@ -47,6 +47,13 @@ test("applies retailer-specific prices only to the matching retailer", () => {
   assert.equal(resolveDropSummaryPrice(item, "Pokemon Center", rules), 179.99);
 });
 
+test("prices Target Day and Ditto product IDs and scales them by quantity", () => {
+  assert.equal(resolveDropSummaryPrice("(1012850570)", "Target", rules), 249.99);
+  assert.equal(resolveDropSummaryOrderPrice("1012850570", "Target", 2, rules), 499.98);
+  assert.equal(resolveDropSummaryPrice("(1012663804)", "Target", rules), 49.99);
+  assert.equal(resolveDropSummaryOrderPrice("1012663804", "Target", 2, rules), 99.98);
+});
+
 test("resolves the Delta Reign ETB at $59.99 for both retailer categories", () => {
   const item = "Pokémon TCG: Mega Evolution—Delta Reign Elite Trainer Box";
   assert.equal(resolveDropSummaryPrice(item, "Target", rules), 59.99);

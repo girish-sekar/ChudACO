@@ -9,6 +9,7 @@ const sections = [
   { id: "signing-in", label: "2. Sign in" },
   { id: "adding-account", label: "3. Add an ACO account" },
   { id: "retailer-troubleshooting", label: "Retailer troubleshooting" },
+  { id: "amazon-2fa", label: "Amazon 2FA setup" },
   { id: "imap-passwords", label: "Generating IMAP Passwords" },
   { id: "name-account", label: "4. Name your account" },
   { id: "pricing", label: "Understanding pricing" },
@@ -244,6 +245,81 @@ export default function SetupGuidePage() {
                 Before another ChudACO checkout, resolve the notice with Target, update changed credentials in your account settings, and confirm your account and order details comply with Target&apos;s terms.
               </p>
             </section>
+          </section>
+
+          <section id="amazon-2fa" className="border-b border-[#2C2D3A] pb-10">
+            <h2 className="font-heading text-2xl font-semibold">Amazon 2FA setup</h2>
+            <p className="mt-2 max-w-[68ch] text-[#9C9AAE]">
+              To begin your Amazon 2FA setup, follow the steps below.
+            </p>
+            <ol className="mt-4 max-w-[68ch] list-decimal space-y-4 pl-5 text-sm text-[#D7D6E4]">
+              <li>
+                Login to your Amazon account and locate the <strong>Account</strong>.
+                <Image
+                  src="/images/amazon-2fa/account.png"
+                  alt="Amazon account menu"
+                  width={709}
+                  height={519}
+                  className="mt-2 h-auto w-full max-w-md rounded-lg border border-[#2C2D3A]"
+                />
+              </li>
+              <li>
+                Click the <strong>Login and Security</strong> tab.
+                <Image
+                  src="/images/amazon-2fa/login-security.png"
+                  alt="Amazon Login and Security tab"
+                  width={900}
+                  height={368}
+                  className="mt-2 h-auto w-full max-w-md rounded-lg border border-[#2C2D3A]"
+                />
+              </li>
+              <li>
+                Click <strong>Turn On</strong> for the 2-step verification row. Then on the next page, click <strong>Get Started</strong>.
+                <Image
+                  src="/images/amazon-2fa/turn-on.png"
+                  alt="Turn on Amazon 2-step verification"
+                  width={757}
+                  height={838}
+                  className="mt-2 h-auto w-full max-w-md rounded-lg border border-[#2C2D3A]"
+                />
+              </li>
+              <li>
+                Click the <strong>Authenticator App</strong> option and click <strong>Can&apos;t Scan the Barcode</strong>.
+                <Image
+                  src="/images/amazon-2fa/cant-scan.png"
+                  alt="Amazon authenticator app can't scan the barcode option"
+                  width={891}
+                  height={663}
+                  className="mt-2 h-auto w-full max-w-md rounded-lg border border-[#2C2D3A]"
+                />
+              </li>
+              <li>
+                Copy and <strong>SAVE</strong> this key to your files and into ChudACO.
+                <Image
+                  src="/images/amazon-2fa/key.png"
+                  alt="Amazon 2FA secret key"
+                  width={508}
+                  height={274}
+                  className="mt-2 h-auto w-full max-w-md rounded-lg border border-[#2C2D3A]"
+                />
+              </li>
+              <li>
+                From there, scan the QR code in your favorite MFA app.
+                <Image
+                  src="/images/amazon-2fa/qr.png"
+                  alt="Amazon 2FA QR code"
+                  width={791}
+                  height={359}
+                  className="mt-2 h-auto w-full max-w-md rounded-lg border border-[#2C2D3A]"
+                />
+              </li>
+              <li>
+                Once your key is <strong>saved</strong> and you have scanned the QR code, <strong>insert the code</strong> from the app and click <strong>Verify OTP and continue</strong>.
+              </li>
+              <li>
+                Finally, to add the 2FA key to your account, head over to ChudACO, create or edit an account for this corresponding Amazon account, and paste the key into <strong>2FA Secret</strong>. Fill in <strong>CVV</strong>.
+              </li>
+            </ol>
           </section>
 
           <section id="imap-passwords" className="border-b border-[#2C2D3A] pb-10">

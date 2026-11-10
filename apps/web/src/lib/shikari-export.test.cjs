@@ -16,7 +16,7 @@ function loadHelper(file) {
   return exports;
 }
 
-function setup() {
+function setup(route = "shikari") {
   const state = { auth: { discordId: "admin" }, query: null, decryptFails: false, sheetFails: false, sheetCalls: 0 };
   const login = (retailer, enabled = true) => ({
     retailer, enabled, loginEmail: `${retailer.toLowerCase()}@retailer.test`,
@@ -57,6 +57,11 @@ function setup() {
     "@/lib/payment-info": { getGoogleSheetsConfig: () => ({ spreadsheetId: "sheet", sheetName: "cards", keyPath: "key" }) },
     "@/lib/sheet-card": loadHelper("sheet-card.ts"),
     "@/lib/export-email": loadHelper("export-email.ts"),
+    "@/lib/account-pulls": { finishPullExport: async (_request, _admin, _type, included, response) => {
+      state.included = included;
+      state.exportMethod = _request.method;
+      return response;
+    } },
     "@/lib/aco-library": { withRetailerProfile: (account, retailer) => ({
       ...account,
       ...account.retailerProfiles.find((entry) => entry.retailer.toLowerCase() === retailer.toLowerCase())?.profile,
@@ -68,16 +73,17 @@ function setup() {
       return ids ? { id: { in: ids.split(",") } } : {};
     } },
   };
-  const source = fs.readFileSync(path.resolve(__dirname, "../app/api/admin/export/shikari/route.ts"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, `../app/api/admin/export/${route}/route.ts`), "utf8");
   const { outputText } = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   });
   const exports = {};
-  vm.runInNewContext(outputText, { exports, require: (name) => {
+  vm.runInNewContext(outputText, { exports, crypto: require("node:crypto"), require: (name) => {
     assert.ok(name in dependencies, `Unexpected dependency: ${name}`);
     return dependencies[name];
   } });
-  return { state, get: (query = "") => exports.GET(new NextRequest(`http://localhost/api/admin/export/shikari${query}`)) };
+  return { state, get: (query = "") => exports.GET(new NextRequest(`http://localhost/api/admin/export/${route}${query}`)),
+    post: (query = "") => exports.POST(new NextRequest(`http://localhost/api/admin/export/${route}${query}`, { method: "POST" })) };
 }
 
 test("accounts default to Target, deduplicate enabled logins, and apply account selection", async () => {
@@ -89,6 +95,7 @@ test("accounts default to Target, deduplicate enabled logins, and apply account 
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.match(response.headers.get("content-disposition"), /shikari-accounts.txt/);
   assert.equal(state.sheetCalls, 0);
+  assert.equal(state.included.length, 2);
 });
 
 test("IMAP uses the required header, mailbox credentials, CSV escaping, and one row per shared mailbox", async () => {
@@ -111,6 +118,7 @@ test("disabled logins and incomplete credentials are excluded", async () => {
   state.accounts = [state.accounts[2], { ...state.accounts[0], encryptedPassword: null, retailerLogins: [] , loginEmail: null }];
   assert.equal(await (await get()).text(), "");
   assert.equal(await (await get("?mode=imap")).text(), "imap_server,port,username,password");
+  assert.equal(state.included.length, 0);
 });
 
 test("unauthenticated and non-admin requests never query credentials", async () => {
@@ -207,4 +215,42 @@ test("an incomplete profile does not block valid profiles and returns a visible 
   assert.match(warning, /Skipped 1 incomplete profile/);
   assert.match(warning, /testuser - Missing/);
   assert.ok(!warning.includes(state.sheetRows[0][5]));
+  assert.equal(state.included.length, 1);
+  assert.equal(state.included[0].id, "account-1");
+});
+
+test("account TXT pulls exclude skipped and disabled rows and retain shared IMAP ownership", async () => {
+  const { state, post } = setup("accounts-txt");
+  const account = state.accounts[0];
+  state.accounts = [account, { ...account, id: "account-2" }, { ...account, id: "skipped", encryptedPassword: null }];
+  await post("?category=valor&retailers=Target&mode=imap");
+  assert.equal(state.included.length, 2);
+  assert.equal(state.included[0].id, "account-1");
+  assert.equal(state.included[1].id, "account-2");
+  assert.equal(state.exportMethod, "POST");
+  state.accounts = [state.accounts[0], { ...state.accounts[0], id: "disabled", retailerLogins: state.accounts[0].retailerLogins.map((entry) => ({ ...entry, enabled: false })) }];
+  await post("?category=hayha&retailers=Target");
+  assert.equal(state.included.length, 1);
+});
+
+test("JSON exports record only the selected retailer and accepted accounts", async () => {
+  for (const route of ["target-json", "pokemon-center-json", "valor-json"]) {
+    const { state, post } = setup(route);
+    const retailer = route === "pokemon-center-json" ? "Costco" : "Target";
+    state.accounts = [state.accounts[0], state.accounts[2]];
+    for (const account of state.accounts) account.retailerCards = [{ ...account.cardOnFile, retailer }];
+    state.sheetRows[0][28] = JSON.stringify({ acoAccountId: "account-1", retailer });
+    const response = await post(`?retailers=${retailer}`);
+    assert.equal(response.status, 200, route);
+    assert.equal(state.included.length, 1, route);
+    assert.ok(state.included.every((entry) => entry.retailer === retailer), route);
+  }
+});
+
+test("failed Pokemon Center profile exports never record a pull", async () => {
+  const { state, post } = setup("pokemon-center-json");
+  state.sheetRows = [];
+  const response = await post("?retailers=Costco");
+  assert.equal(response.status, 409);
+  assert.equal(state.included, undefined);
 });
